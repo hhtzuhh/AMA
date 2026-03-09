@@ -79,6 +79,34 @@ export default function PipelinePage() {
     }
   }, [onNodesChange, savePositions, setNodes])
 
+  const onBeforeDelete = useCallback(async ({ nodes: deletedNodes }: { nodes: Node[]; edges: Edge[] }) => {
+    const pageNodes = deletedNodes.filter(n => n.id.startsWith('page_'))
+    if (pageNodes.length === 0) return true  // nothing to guard
+
+    const pageNums = pageNodes.map(n => parseInt(n.id.replace('page_', '')))
+    const label = pageNums.length === 1
+      ? `page ${pageNums[0]}`
+      : `${pageNums.length} pages (${pageNums.join(', ')})`
+
+    if (!confirm(`Delete ${label}? This will remove the page(s) from story_data.json and cannot be undone.`)) {
+      return false  // cancel the deletion
+    }
+
+    // Call backend for each page
+    await Promise.all(
+      pageNums.map(n =>
+        fetch(`${API}/api/projects/${projectId}/pages/${n}`, { method: 'DELETE' })
+      )
+    )
+    pageNums.forEach(n => {
+      setEdges((prev: Edge[]) => prev.filter((e: Edge) => e.source !== `page_${n}` && e.target !== `page_${n}`))
+    })
+    if (selected?.type === 'page' && pageNums.includes(selected.data.page.page)) {
+      setSelected(null)
+    }
+    return true  // allow React Flow to remove the node
+  }, [projectId, selected, setEdges])
+
   const savePageEdges = useCallback((currentEdges: Edge[]) => {
     if (!projectId) return
     const pageEdges = currentEdges
@@ -97,7 +125,7 @@ export default function PipelinePage() {
 
   const onConnect = useCallback(
     (params: Connection) => {
-      setEdges(eds => {
+      setEdges((eds: Edge[]) => {
         const newEdges = addEdge({ ...params, style: { stroke: '#6366f1', strokeWidth: 2.5 } }, eds)
         savePageEdges(newEdges)
         return newEdges
@@ -111,7 +139,7 @@ export default function PipelinePage() {
     const hasRemoval = changes.some(c => c.type === 'remove')
     if (hasRemoval) {
       setTimeout(() => {
-        setEdges(current => {
+        setEdges((current: Edge[]) => {
           savePageEdges(current)
           return current
         })
@@ -331,7 +359,7 @@ export default function PipelinePage() {
     if (!res.ok) return
     const page = await res.json()
     const pageId = `page_${page.page}`
-    setNodes(prev => [...prev, {
+    setNodes((prev: Node[]) => [...prev, {
       id: pageId,
       type: 'page',
       position: { x: 600, y: -100 }, // floats above main grid — orphan
@@ -345,8 +373,8 @@ export default function PipelinePage() {
   }
 
   function handlePageDeleted(pageNum: number) {
-    setNodes(prev => prev.filter(n => n.id !== `page_${pageNum}`))
-    setEdges(prev => prev.filter(e => e.source !== `page_${pageNum}` && e.target !== `page_${pageNum}`))
+    setNodes((prev: Node[]) => prev.filter((n: Node) => n.id !== `page_${pageNum}`))
+    setEdges((prev: Edge[]) => prev.filter((e: Edge) => e.source !== `page_${pageNum}` && e.target !== `page_${pageNum}`))
     setSelected(null)
   }
 
@@ -434,7 +462,7 @@ export default function PipelinePage() {
   }))
 
   // Compute per-node display data (all nodes are page nodes now)
-  const nodesWithStatus = nodes.map(n => {
+  const nodesWithStatus = nodes.map((n: Node) => {
     const page = (n.data as any).page
     // Per-character sprite status for this page
     const charSpriteStatus: Record<string, 'done' | 'running' | 'pending'> = {}
@@ -473,6 +501,7 @@ export default function PipelinePage() {
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
           onConnect={onConnect}
+          onBeforeDelete={onBeforeDelete}
           nodeTypes={nodeTypes}
           colorMode="dark"
           fitView

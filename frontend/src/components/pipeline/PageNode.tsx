@@ -3,13 +3,6 @@ import { Handle, Position } from '@xyflow/react'
 import { StatusBadge } from './StoryNode'
 import type { Page } from '../../types'
 
-const MOOD_COLORS: Record<string, string> = {
-  Mischievous: '#f59e0b', Angry: '#ef4444', Magical: '#8b5cf6',
-  Adventurous: '#3b82f6', Wild: '#10b981', Lonely: '#6b7280',
-  Peaceful: '#06b6d4', Triumphant: '#f97316', Playful: '#ec4899',
-  Fearsome: '#dc2626', Authoritative: '#7c3aed', Bittersweet: '#a78bfa',
-  Comforting: '#34d399', Neutral: '#374151', Joyful: '#facc15',
-}
 
 export function charSlug(name: string) {
   return name.toLowerCase().replace(/\s+/g, '_')
@@ -24,20 +17,23 @@ interface Props {
     audioStatus: 'done' | 'running' | 'pending'
     onClick: () => void
   }
+  selected?: boolean
 }
 
-function PageNode({ data }: Props) {
+function PageNode({ data, selected }: Props) {
   const { page, charSpriteStatus = {}, bgStatus = 'pending', audioStatus = 'pending' } = data
-  const moodColor = MOOD_COLORS[page.mood] ?? '#4b5563'
-
   return (
     <div
       onClick={data.onClick}
-      className="rounded-lg border border-gray-600 bg-gray-900 shadow-md cursor-pointer hover:border-gray-400 transition-colors overflow-hidden"
-      style={{ width: 165 }}
+      className="rounded-lg shadow-md cursor-pointer transition-colors overflow-hidden"
+      style={{
+        width: 165,
+        border: selected ? '2px solid #818cf8' : '1px solid #4b5563',
+        background: selected ? '#13132a' : '#111827',
+        boxShadow: selected ? '0 0 0 1px #6366f1, 0 4px 12px rgba(99,102,241,0.25)' : undefined,
+      }}
     >
       <Handle type="target" position={Position.Left} />
-      <div style={{ height: 3, background: moodColor }} />
       <div className="p-2">
         <div className="flex items-center justify-between mb-1">
           <span className="text-xs font-bold text-gray-300">P{page.page}</span>
