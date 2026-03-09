@@ -69,14 +69,28 @@ export default function PipelinePage() {
   // Poll project metadata every 3s
   useEffect(() => {
     if (!projectId) return
-    const interval = setInterval(() => {
+    const fetchMeta = () =>
       fetch(`${API}/api/projects/${projectId}`)
         .then(r => r.ok ? r.json() : null)
         .then(meta => { if (meta?.pipeline) setPipelineStatus(meta.pipeline) })
         .catch(() => {})
-    }, 3000)
+    fetchMeta() // fetch immediately on mount
+    const interval = setInterval(fetchMeta, 3000)
     return () => clearInterval(interval)
   }, [projectId])
+
+  // Sync pipelineStatus → nodeStatuses for stage nodes
+  const PIPELINE_STATUS_MAP: Record<string, string> = { done: 'Generated', running: 'Running', pending: 'Pending', failed: 'Failed' }
+  useEffect(() => {
+    setNodeStatuses(prev => {
+      const next = { ...prev }
+      STAGES.forEach(stage => {
+        const s = pipelineStatus[stage.step]
+        if (s) next[stage.id] = PIPELINE_STATUS_MAP[s] ?? prev[stage.id]
+      })
+      return next
+    })
+  }, [pipelineStatus])
 
   // Fetch manifest on mount and after each step completes
   const fetchManifest = useCallback(() => {
