@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 const API = 'http://localhost:8000'
@@ -12,9 +12,8 @@ interface Project {
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
-  const [uploading, setUploading] = useState(false)
+  const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
-  const fileRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -24,20 +23,15 @@ export default function ProjectsPage() {
       .catch(() => { setError('Backend not running — start it on :8000'); setLoading(false) })
   }, [])
 
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setUploading(true)
-    setError('')
+  async function createProject() {
+    setCreating(true)
     try {
-      const form = new FormData()
-      form.append('pdf', file)
-      const res = await fetch(`${API}/api/projects`, { method: 'POST', body: form })
+      const res = await fetch(`${API}/api/projects`, { method: 'POST' })
       const project = await res.json()
       navigate(`/pipeline/${project.project_id}`)
     } catch {
       setError('Failed to create project')
-      setUploading(false)
+      setCreating(false)
     }
   }
 
@@ -54,18 +48,12 @@ export default function ProjectsPage() {
 
       {/* New project */}
       <div
-        onClick={() => !uploading && fileRef.current?.click()}
+        onClick={() => !creating && createProject()}
         className="w-full max-w-lg border-2 border-dashed border-indigo-600 rounded-xl p-8 text-center cursor-pointer hover:border-indigo-400 hover:bg-indigo-950/30 transition-colors mb-10"
       >
-        <input ref={fileRef} type="file" accept=".pdf" className="hidden" onChange={handleUpload} />
-        {uploading
-          ? <p className="text-indigo-300 animate-pulse">Uploading PDF...</p>
-          : <>
-              <p className="text-2xl mb-2">＋</p>
-              <p className="text-indigo-300 font-medium">Start New Project</p>
-              <p className="text-gray-500 text-xs mt-1">Upload a PDF book</p>
-            </>
-        }
+        <p className="text-2xl mb-2">＋</p>
+        <p className="text-indigo-300 font-medium">{creating ? 'Creating...' : 'New Project'}</p>
+        <p className="text-gray-500 text-xs mt-1">Opens a blank canvas — upload a PDF or build manually</p>
       </div>
 
       {/* Error */}

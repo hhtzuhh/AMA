@@ -40,6 +40,7 @@ export default function PipelinePage() {
   const [selected, setSelected] = useState<AnySelected | null>(null)
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, string>>({})
   const [pipelineStatus, setPipelineStatus] = useState<Record<string, string>>({})
+  const [pdfName, setPdfName] = useState<string>('')
   const [manifest, setManifest] = useState<Record<string, any>>({})
 
   // Sprite completion: "max/sailing" → true
@@ -124,7 +125,10 @@ export default function PipelinePage() {
     const fetchMeta = () =>
       fetch(`${API}/api/projects/${projectId}`)
         .then(r => r.ok ? r.json() : null)
-        .then(meta => { if (meta?.pipeline) setPipelineStatus(meta.pipeline) })
+        .then(meta => {
+          if (meta?.pipeline) setPipelineStatus(meta.pipeline)
+          if (meta?.pdf_name !== undefined) setPdfName(meta.pdf_name)
+        })
         .catch(() => {})
     fetchMeta() // fetch immediately on mount
     const interval = setInterval(fetchMeta, 3000)
@@ -366,6 +370,19 @@ export default function PipelinePage() {
     }
   }
 
+  async function handleUpload(file: File) {
+    if (!projectId) return
+    const form = new FormData()
+    form.append('pdf', file)
+    const res = await fetch(`${API}/api/projects/${projectId}/upload-pdf`, { method: 'POST', body: form })
+    if (res.ok) {
+      const { pdf_name } = await res.json()
+      setPdfName(pdf_name)
+    }
+    // Auto-run story understanding
+    runStage('stage_story', 'story')
+  }
+
   useEffect(() => {
     if (!projectId) return
     fetch(`${API}/api/projects/${projectId}/story`)
@@ -447,7 +464,7 @@ export default function PipelinePage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 41px)' }}>
-      <PipelineToolbar stages={toolbarStages} />
+      <PipelineToolbar stages={toolbarStages} onUpload={handleUpload} pdfName={pdfName} />
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
       <div style={{ flex: 1 }}>
         <ReactFlow

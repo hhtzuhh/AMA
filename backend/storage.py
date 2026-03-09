@@ -277,6 +277,13 @@ def update_character(project_id: str, char_slug: str, fields: dict) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 
+def update_pdf_name(project_id: str, pdf_name: str) -> None:
+    pdir = project_dir(project_id)
+    meta = _read_meta(pdir)
+    meta["pdf_name"] = pdf_name
+    _write_meta(pdir, meta)
+
+
 def get_positions(project_id: str) -> dict:
     """Return saved node positions from positions.json."""
     path = project_dir(project_id) / "positions.json"

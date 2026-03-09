@@ -1,6 +1,5 @@
-import { memo, useState } from 'react'
+import { memo, useRef, useState } from 'react'
 import { StatusBadge, RunButton } from './StoryNode'
-import type { StageInfo } from './NodePanel'
 
 interface Stage {
   id: string
@@ -17,10 +16,23 @@ interface Stage {
 
 interface PipelineToolbarProps {
   stages: Stage[]
+  onUpload: (file: File) => Promise<void>
+  pdfName: string
 }
 
-function PipelineToolbar({ stages }: PipelineToolbarProps) {
+function PipelineToolbar({ stages, onUpload, pdfName }: PipelineToolbarProps) {
+  const hasPdf = !!pdfName
   const [collapsed, setCollapsed] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''  // reset so same file can be re-selected
+    setUploading(true)
+    await onUpload(file).finally(() => setUploading(false))
+  }
 
   return (
     <div style={{ background: '#0a0a1a', borderBottom: '1px solid #1e1e3f', flexShrink: 0 }}>
@@ -29,9 +41,27 @@ function PipelineToolbar({ stages }: PipelineToolbarProps) {
         <span style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
           Pipeline
         </span>
-        <span style={{ fontSize: 11, color: '#4b5563', flex: 1 }}>
-          — auto-generate story assets
+        <span style={{ fontSize: 11, color: hasPdf ? '#6b7280' : '#4b5563', flex: 1 }}>
+          {hasPdf ? `📄 ${pdfName}` : '— no PDF uploaded'}
         </span>
+        {/* Upload PDF shortcut — always visible */}
+        <input ref={fileRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={handleFile} />
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          style={{
+            background: 'transparent',
+            border: '1px solid #4338ca',
+            color: uploading ? '#6b7280' : '#818cf8',
+            borderRadius: 6,
+            padding: '3px 10px',
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: uploading ? 'default' : 'pointer',
+          }}
+        >
+          {uploading ? 'Uploading...' : '↑ Upload PDF'}
+        </button>
         <button
           onClick={() => setCollapsed(c => !c)}
           style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 11, cursor: 'pointer', padding: '2px 6px' }}
@@ -45,7 +75,6 @@ function PipelineToolbar({ stages }: PipelineToolbarProps) {
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 0, paddingBottom: 10, paddingLeft: 12, paddingRight: 12 }}>
           {stages.map((stage, i) => (
             <div key={stage.id} style={{ display: 'flex', alignItems: 'center' }}>
-              {/* Card */}
               <div
                 onClick={stage.onClick}
                 style={{
@@ -70,13 +99,12 @@ function PipelineToolbar({ stages }: PipelineToolbarProps) {
                 <div style={{ fontSize: 10, color: '#6b7280', fontFamily: 'monospace', marginBottom: 6 }}>
                   {stage.inputLabel} → <span style={{ color: '#818cf8' }}>{stage.outputLabel}</span>
                 </div>
-                <RunButton
-                  status={stage.status}
-                  onRun={(e: React.MouseEvent) => { e.stopPropagation(); stage.onRun() }}
-                />
+                {hasPdf
+                  ? <RunButton status={stage.status} onRun={(e: React.MouseEvent) => { e.stopPropagation(); stage.onRun() }} />
+                  : <div style={{ fontSize: 10, color: '#4b5563', marginTop: 4 }}>Upload PDF to run</div>
+                }
               </div>
 
-              {/* Arrow connector */}
               {i < stages.length - 1 && (
                 <div style={{ color: '#374151', fontSize: 18, padding: '0 6px', userSelect: 'none' }}>→</div>
               )}

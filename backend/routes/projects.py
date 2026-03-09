@@ -15,15 +15,29 @@ def list_projects():
 
 
 @router.post("")
-async def create_project(pdf: UploadFile = File(...)):
-    pdf_name = pdf.filename or "book.pdf"
-    slug = pdf_name.lower().replace(".pdf", "").replace(" ", "-")[:40]
+async def create_project(pdf: UploadFile = File(None)):
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    project_id = f"{timestamp}_{slug}"
-    meta = storage.create_project(project_id, pdf_name)
-    content = await pdf.read()
-    storage.save_pdf(project_id, content, pdf_name)
+    if pdf and pdf.filename:
+        pdf_name = pdf.filename
+        slug = pdf_name.lower().replace(".pdf", "").replace(" ", "-")[:40]
+        project_id = f"{timestamp}_{slug}"
+        meta = storage.create_project(project_id, pdf_name)
+        storage.save_pdf(project_id, await pdf.read(), pdf_name)
+    else:
+        project_id = f"{timestamp}_untitled"
+        meta = storage.create_project(project_id, "")
     return meta
+
+
+@router.post("/{project_id}/upload-pdf")
+async def upload_pdf(project_id: str, pdf: UploadFile = File(...)):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    pdf_name = pdf.filename or "book.pdf"
+    storage.save_pdf(project_id, await pdf.read(), pdf_name)
+    # Update pdf_name in meta via storage helpers
+    storage.update_pdf_name(project_id, pdf_name)
+    return {"ok": True, "pdf_name": pdf_name}
 
 
 @router.get("/{project_id}")

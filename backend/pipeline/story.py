@@ -15,6 +15,9 @@ import storage
 
 
 async def run(job: Job, project_id: str) -> None:
+    meta = storage.get_project(project_id)
+    if not meta or not meta.get("pdf_name"):
+        raise ValueError("No PDF uploaded — upload a PDF before running Story Understanding")
     if MOCK_MODE:
         await _mock(job, project_id)
     else:
