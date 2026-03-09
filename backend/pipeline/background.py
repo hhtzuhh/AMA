@@ -16,7 +16,14 @@ async def run(job: Job, project_id: str) -> None:
 
 
 async def _mock(job: Job, project_id: str) -> None:
+    import shutil
     dst = assets_dir(project_id)
+    story = storage.get_story_data(project_id)
+    pages_by_system_page: dict[int, dict] = {}
+    if story:
+        for p in story.get("pages", []):
+            pages_by_system_page[p["page"]] = p
+
     files = sorted((TEST_ASSETS_DIR / "scenes").glob("*.mp4"))
     count = 0
 
@@ -25,17 +32,20 @@ async def _mock(job: Job, project_id: str) -> None:
         parts = src_file.stem.split("_")
         page_num = int(parts[1]) if len(parts) >= 2 else 0
 
+        # Determine actual_page key for storage
+        page_data = pages_by_system_page.get(page_num, {})
+        actual_page = page_data.get("actual_page", page_num)
+
         job.current = {"type": "background", "page": page_num}
         job.progress = f"Copying page {page_num} background..."
         await asyncio.sleep(0.5)
 
-        existing = list((dst / "scenes").glob(f"page_{page_num}_bg_v*.mp4"))
+        existing = list((dst / "scenes").glob(f"page_{actual_page}_bg_v*.mp4"))
         version = len(existing) + 1
-        url = f"scenes/page_{page_num}_bg_v{version}.mp4"
+        url = f"scenes/page_{actual_page}_bg_v{version}.mp4"
 
-        import shutil
         shutil.copy2(src_file, dst / url)
-        storage.record_background(project_id, page_num, url)
+        storage.record_background(project_id, actual_page, url)
         job.emit({"type": "background", "page": page_num, "status": "done", "url": url})
         count += 1
 
@@ -44,13 +54,50 @@ async def _mock(job: Job, project_id: str) -> None:
     job.result = {"videos_generated": count}
 
 
-async def _real(job: Job, project_id: str) -> None:
+def _get_reference_image(pdf_path, page_data: dict, dst):
+    """Return a types.Image for the reference page, or None if no reference available."""
     import io
-    import os
-    from google import genai
     from google.genai import types
     import fitz  # PyMuPDF
     from PIL import Image
+    from pathlib import Path
+
+    DPI = 150
+
+    def render_pdf_page(page_number: int) -> types.Image:
+        doc = fitz.open(str(pdf_path))
+        mat = fitz.Matrix(DPI / 72, DPI / 72)
+        pix = doc[page_number - 1].get_pixmap(matrix=mat)
+        doc.close()
+        pil = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        buf = io.BytesIO()
+        pil.save(buf, format="PNG")
+        return types.Image(image_bytes=buf.getvalue(), mime_type="image/png")
+
+    ref_image_path = page_data.get("ref_image")
+    if ref_image_path:
+        img_path = Path(dst) / ref_image_path
+        if img_path.exists():
+            pil = Image.open(str(img_path)).convert("RGB")
+            buf = io.BytesIO()
+            pil.save(buf, format="PNG")
+            return types.Image(image_bytes=buf.getvalue(), mime_type="image/png")
+
+    ref_page = page_data.get("ref_page")
+    if ref_page:
+        return render_pdf_page(int(ref_page))
+
+    actual_page = page_data.get("actual_page")
+    if actual_page:
+        return render_pdf_page(int(actual_page))
+
+    return None
+
+
+async def _real(job: Job, project_id: str) -> None:
+    import os
+    from google import genai
+    from google.genai import types
 
     story = storage.get_story_data(project_id)
     if not story:
@@ -62,18 +109,6 @@ async def _real(job: Job, project_id: str) -> None:
     if not pdf_files:
         raise FileNotFoundError("No PDF found in project directory")
     pdf_path = pdf_files[0]
-
-    DPI = 150
-
-    def render_page_as_veo_image(page_number: int) -> types.Image:
-        doc = fitz.open(str(pdf_path))
-        mat = fitz.Matrix(DPI / 72, DPI / 72)
-        pix = doc[page_number - 1].get_pixmap(matrix=mat)
-        doc.close()
-        pil = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        buf = io.BytesIO()
-        pil.save(buf, format="PNG")
-        return types.Image(image_bytes=buf.getvalue(), mime_type="image/png")
 
     def build_prompt(page_data: dict) -> str:
         setting = page_data["setting"]
@@ -115,27 +150,38 @@ async def _real(job: Job, project_id: str) -> None:
     operations = {}
     for page in pages:
         page_num = page["page"]
+        actual_page = page.get("actual_page", page_num)
         job.current = {"type": "background", "page": page_num}
         job.progress = f"Submitting page {page_num}..."
 
         prompt = build_prompt(page)
-        page_ref = render_page_as_veo_image(page_num)
+        page_ref = _get_reference_image(pdf_path, page, dst)
 
-        operation = client.models.generate_videos(
-            model=MODEL_VIDEO,
-            prompt=prompt,
-            config=types.GenerateVideosConfig(
-                aspect_ratio="16:9",
-                duration_seconds=8,
-                reference_images=[
-                    types.VideoGenerationReferenceImage(
-                        image=page_ref,
-                        reference_type="asset",
-                    )
-                ],
-            ),
-        )
-        operations[page_num] = operation
+        if page_ref is not None:
+            operation = client.models.generate_videos(
+                model=MODEL_VIDEO,
+                prompt=prompt,
+                config=types.GenerateVideosConfig(
+                    aspect_ratio="16:9",
+                    duration_seconds=8,
+                    reference_images=[
+                        types.VideoGenerationReferenceImage(
+                            image=page_ref,
+                            reference_type="asset",
+                        )
+                    ],
+                ),
+            )
+        else:
+            operation = client.models.generate_videos(
+                model=MODEL_VIDEO,
+                prompt=prompt,
+                config=types.GenerateVideosConfig(
+                    aspect_ratio="16:9",
+                    duration_seconds=8,
+                ),
+            )
+        operations[page_num] = (operation, actual_page)
         job.progress = f"Submitted page {page_num}: {operation.name}"
 
     if not operations:
@@ -149,20 +195,20 @@ async def _real(job: Job, project_id: str) -> None:
     while pending:
         await asyncio.sleep(15)
         done_pages = []
-        for page_num, op in list(pending.items()):
+        for page_num, (op, actual_page) in list(pending.items()):
             op = client.operations.get(op)
-            pending[page_num] = op
+            pending[page_num] = (op, actual_page)
             if op.done:
                 done_pages.append(page_num)
                 if op.response and op.response.generated_videos:
-                    existing = list((dst / "scenes").glob(f"page_{page_num}_bg_v*.mp4"))
+                    existing = list((dst / "scenes").glob(f"page_{actual_page}_bg_v*.mp4"))
                     version = len(existing) + 1
-                    url = f"scenes/page_{page_num}_bg_v{version}.mp4"
+                    url = f"scenes/page_{actual_page}_bg_v{version}.mp4"
                     out_path = dst / url
                     video = op.response.generated_videos[0]
                     client.files.download(file=video.video)
                     video.video.save(str(out_path))
-                    storage.record_background(project_id, page_num, url)
+                    storage.record_background(project_id, actual_page, url)
                     job.emit({"type": "background", "page": page_num, "status": "done", "url": url})
                     count += 1
 

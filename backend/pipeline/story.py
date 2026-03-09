@@ -26,6 +26,12 @@ async def _mock(job: Job, project_id: str) -> None:
     await asyncio.sleep(1.5)
 
     data = json.loads(TEST_STORY_DATA.read_text())
+    for page in data["pages"]:
+        if "actual_page" not in page:
+            page["actual_page"] = page["page"]
+            page["ref_page"] = page["page"]
+            page["ref_source"] = "pdf"
+            page["ref_image"] = None
     storage.save_story_data(project_id, data)
     storage.update_pipeline_status(project_id, "story", "done")
 
@@ -61,6 +67,12 @@ async def _real(job: Job, project_id: str) -> None:
     )
 
     data = json.loads(response.text)
+    for page in data["pages"]:
+        if "actual_page" not in page:
+            page["actual_page"] = page["page"]
+            page["ref_page"] = page["page"]
+            page["ref_source"] = "pdf"
+            page["ref_image"] = None
     storage.save_story_data(project_id, data)
 
     job.progress = "Extracting character reference images..."

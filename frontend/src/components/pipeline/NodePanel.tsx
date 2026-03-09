@@ -1,3 +1,4 @@
+import { useState, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import type { Page } from '../../types'
 import { charSlug } from './PageNode'
@@ -21,9 +22,11 @@ interface Props {
   doneBackgrounds: Set<number>
   doneNarrations: Set<number>
   onManifestChange: () => void
+  onPageDeleted: (pageNum: number) => void
+  onPageUpdated: () => void
 }
 
-export default function NodePanel({ selected, onClose, manifest, completedSprites, doneBackgrounds, doneNarrations, onManifestChange }: Props) {
+export default function NodePanel({ selected, onClose, manifest, completedSprites, doneBackgrounds, doneNarrations, onManifestChange, onPageDeleted, onPageUpdated }: Props) {
   const { projectId } = useParams<{ projectId: string }>()
 
   function assetUrl(path: string) {
@@ -61,7 +64,7 @@ export default function NodePanel({ selected, onClose, manifest, completedSprite
   }
 
   return (
-    <div style={{ width: 288, background: '#111827', borderLeft: '1px solid #374151', padding: 16, overflowY: 'auto', flexShrink: 0 }}>
+    <div style={{ width: 320, background: '#111827', borderLeft: '1px solid #374151', padding: 16, overflowY: 'auto', flexShrink: 0 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <span style={{ fontSize: 11, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 'bold' }}>Details</span>
         <button onClick={onClose} style={{ color: '#6b7280', background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>×</button>
@@ -70,6 +73,7 @@ export default function NodePanel({ selected, onClose, manifest, completedSprite
       {selected.type === 'page' && (
         <PagePanel
           page={selected.data.page}
+          projectId={projectId!}
           completedSprites={completedSprites}
           doneBackgrounds={doneBackgrounds}
           doneNarrations={doneNarrations}
@@ -78,6 +82,8 @@ export default function NodePanel({ selected, onClose, manifest, completedSprite
           getNarrationEntry={getNarrationEntry}
           assetUrl={assetUrl}
           setCurrent={setCurrent}
+          onPageDeleted={onPageDeleted}
+          onPageUpdated={onPageUpdated}
         />
       )}
     </div>
@@ -119,8 +125,17 @@ function VersionPicker({ entry, onSelect }: { entry: any; onSelect: (v: number) 
   )
 }
 
-function PagePanel({ page, completedSprites, doneBackgrounds, doneNarrations, getSpriteEntry, getBackgroundEntry, getNarrationEntry, assetUrl, setCurrent }: {
+const EDITABLE_FIELDS: Array<{ key: string; label: string; multiline?: boolean }> = [
+  { key: 'text', label: 'Text', multiline: true },
+  { key: 'summary', label: 'Summary', multiline: true },
+  { key: 'setting', label: 'Setting' },
+  { key: 'mood', label: 'Mood' },
+  { key: 'scene_motion', label: 'Scene Motion' },
+]
+
+function PagePanel({ page, projectId, completedSprites, doneBackgrounds, doneNarrations, getSpriteEntry, getBackgroundEntry, getNarrationEntry, assetUrl, setCurrent, onPageDeleted, onPageUpdated }: {
   page: Page
+  projectId: string
   completedSprites: Set<string>
   doneBackgrounds: Set<number>
   doneNarrations: Set<number>
@@ -129,21 +144,164 @@ function PagePanel({ page, completedSprites, doneBackgrounds, doneNarrations, ge
   getNarrationEntry: (page: number) => any
   assetUrl: (path: string) => string
   setCurrent: (body: object) => void
+  onPageDeleted: (pageNum: number) => void
+  onPageUpdated: () => void
 }) {
+  const [draft, setDraft] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [refPageInput, setRefPageInput] = useState<string>('')
+  const [settingRef, setSettingRef] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const hasDraft = Object.keys(draft).length > 0
+
   function entryUrl(entry: any): string | null {
     if (!entry || entry.current < 0 || !entry.versions?.length) return null
     return assetUrl(entry.versions[entry.current].url)
   }
 
-  const bgEntry = getBackgroundEntry(page.page)
-  const narEntry = getNarrationEntry(page.page)
+  const actualPage = page.actual_page ?? page.page
+  const bgEntry = getBackgroundEntry(actualPage)
+  const narEntry = getNarrationEntry(actualPage)
+
+  function handleFieldChange(key: string, value: string) {
+    setDraft(prev => ({ ...prev, [key]: value }))
+  }
+
+  function discardDraft() {
+    setDraft({})
+  }
+
+  async function saveDraft() {
+    setSaving(true)
+    try {
+      await fetch(`${API}/api/projects/${projectId}/pages/${page.page}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: draft }),
+      })
+      setDraft({})
+      onPageUpdated()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function deletePage() {
+    if (!confirm(`Delete page ${page.page}? This cannot be undone.`)) return
+    setDeleting(true)
+    try {
+      await fetch(`${API}/api/projects/${projectId}/pages/${page.page}`, { method: 'DELETE' })
+      onPageDeleted(page.page)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  async function setRefByPage() {
+    const n = parseInt(refPageInput, 10)
+    if (isNaN(n)) return
+    setSettingRef(true)
+    try {
+      await fetch(`${API}/api/projects/${projectId}/pages/${page.page}/ref`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ref_page: n }),
+      })
+      onPageUpdated()
+    } finally {
+      setSettingRef(false)
+      setRefPageInput('')
+    }
+  }
+
+  async function uploadRefImage(file: File) {
+    setSettingRef(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      await fetch(`${API}/api/projects/${projectId}/pages/${page.page}/ref-image`, {
+        method: 'POST',
+        body: fd,
+      })
+      onPageUpdated()
+    } finally {
+      setSettingRef(false)
+    }
+  }
+
+  function fieldValue(key: string): string {
+    if (key in draft) return draft[key]
+    return (page as any)[key] ?? ''
+  }
 
   return (
     <div>
-      <h2 style={{ color: 'white', fontWeight: 'bold', fontSize: 13, marginBottom: 8 }}>Page {page.page} — {page.mood}</h2>
-      {page.text && <Field label="Text" value={page.text} />}
-      <Field label="Summary" value={page.summary} />
-      <Field label="Setting" value={page.setting} />
+      <h2 style={{ color: 'white', fontWeight: 'bold', fontSize: 13, marginBottom: 8 }}>
+        Page {page.page}
+        {page.actual_page !== undefined && page.actual_page !== page.page && (
+          <span style={{ color: '#6b7280', fontWeight: 'normal', fontSize: 11 }}> (PDF p.{page.actual_page})</span>
+        )}
+        {' '}— {page.mood}
+      </h2>
+
+      {/* Inline editable fields */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+          <Label>Edit Fields</Label>
+          {hasDraft && (
+            <span style={{ fontSize: 10, color: '#f59e0b', fontWeight: 'bold' }}>unsaved changes</span>
+          )}
+        </div>
+        {EDITABLE_FIELDS.map(({ key, label, multiline }) => (
+          <div key={key} style={{ marginBottom: 6 }}>
+            <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>{label}</div>
+            {multiline ? (
+              <textarea
+                value={fieldValue(key)}
+                onChange={e => handleFieldChange(key, e.target.value)}
+                rows={3}
+                style={{
+                  width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4,
+                  color: '#d1d5db', fontSize: 11, padding: '4px 6px', resize: 'vertical', boxSizing: 'border-box',
+                  outline: key in draft ? '1px solid #f59e0b' : 'none',
+                }}
+              />
+            ) : (
+              <input
+                type="text"
+                value={fieldValue(key)}
+                onChange={e => handleFieldChange(key, e.target.value)}
+                style={{
+                  width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4,
+                  color: '#d1d5db', fontSize: 11, padding: '4px 6px', boxSizing: 'border-box',
+                  outline: key in draft ? '1px solid #f59e0b' : 'none',
+                }}
+              />
+            )}
+          </div>
+        ))}
+        {hasDraft && (
+          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+            <button
+              onClick={saveDraft}
+              disabled={saving}
+              style={{ flex: 1, background: '#4338ca', color: 'white', border: 'none', borderRadius: 4, padding: '5px 0', fontSize: 11, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+            <button
+              onClick={discardDraft}
+              disabled={saving}
+              style={{ flex: 1, background: '#374151', color: '#d1d5db', border: 'none', borderRadius: 4, padding: '5px 0', fontSize: 11, cursor: 'pointer' }}
+            >
+              Discard
+            </button>
+          </div>
+        )}
+      </div>
+
       {page.key_interaction !== 'None' && <Field label="Key Interaction" value={page.key_interaction} />}
       {page.foreground_characters.length > 0 && <Field label="Characters" value={page.foreground_characters.join(', ')} />}
 
@@ -186,13 +344,60 @@ function PagePanel({ page, completedSprites, doneBackgrounds, doneNarrations, ge
         </div>
       </div>
 
+      {/* Background Reference */}
+      <div style={{ marginBottom: 12 }}>
+        <Label>Background Reference</Label>
+        <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 6 }}>
+          {page.ref_source === 'custom'
+            ? 'Custom image'
+            : `PDF page ${page.ref_page ?? page.actual_page ?? page.page}`
+          }
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+          <input
+            type="number"
+            min={1}
+            value={refPageInput}
+            onChange={e => setRefPageInput(e.target.value)}
+            placeholder="PDF page #"
+            style={{
+              flex: 1, background: '#1f2937', border: '1px solid #374151', borderRadius: 4,
+              color: '#d1d5db', fontSize: 11, padding: '4px 6px', boxSizing: 'border-box',
+            }}
+          />
+          <button
+            onClick={setRefByPage}
+            disabled={settingRef || !refPageInput}
+            style={{ background: '#374151', color: '#d1d5db', border: 'none', borderRadius: 4, padding: '4px 8px', fontSize: 11, cursor: settingRef ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}
+          >
+            Set
+          </button>
+        </div>
+        <div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={e => { if (e.target.files?.[0]) uploadRefImage(e.target.files[0]) }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={settingRef}
+            style={{ width: '100%', background: '#1f2937', color: '#9ca3af', border: '1px solid #374151', borderRadius: 4, padding: '5px 0', fontSize: 11, cursor: settingRef ? 'not-allowed' : 'pointer' }}
+          >
+            Upload Custom Ref Image
+          </button>
+        </div>
+      </div>
+
       {/* Background video */}
       <div style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
           <Label>Background Video</Label>
           <VersionPicker
             entry={bgEntry}
-            onSelect={v => setCurrent({ type: 'background', page: page.page, version: v })}
+            onSelect={v => setCurrent({ type: 'background', page: actualPage, version: v })}
           />
         </div>
         {doneBackgrounds.has(page.page) && entryUrl(bgEntry)
@@ -202,18 +407,33 @@ function PagePanel({ page, completedSprites, doneBackgrounds, doneNarrations, ge
       </div>
 
       {/* Narration */}
-      <div style={{ marginBottom: 8 }}>
+      <div style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
           <Label>Narration Audio</Label>
           <VersionPicker
             entry={narEntry}
-            onSelect={v => setCurrent({ type: 'narration', page: page.page, version: v })}
+            onSelect={v => setCurrent({ type: 'narration', page: actualPage, version: v })}
           />
         </div>
         {doneNarrations.has(page.page) && entryUrl(narEntry)
           ? <audio key={entryUrl(narEntry)!} src={entryUrl(narEntry)!} controls style={{ width: '100%' }} />
           : <Pending />
         }
+      </div>
+
+      {/* Delete button */}
+      <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #374151' }}>
+        <button
+          onClick={deletePage}
+          disabled={deleting}
+          style={{
+            width: '100%', background: '#7f1d1d', color: '#fca5a5', border: '1px solid #991b1b',
+            borderRadius: 4, padding: '6px 0', fontSize: 12, cursor: deleting ? 'not-allowed' : 'pointer',
+            opacity: deleting ? 0.7 : 1,
+          }}
+        >
+          {deleting ? 'Deleting...' : 'Delete Page'}
+        </button>
       </div>
     </div>
   )
@@ -224,7 +444,7 @@ function Pending() {
 }
 
 function Label({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1 }}>{children}</div>
+  return <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{children}</div>
 }
 
 function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {

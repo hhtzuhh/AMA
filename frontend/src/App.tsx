@@ -2,7 +2,6 @@ import { BrowserRouter, Routes, Route, NavLink, useParams } from 'react-router-d
 import ProjectsPage from './pages/ProjectsPage'
 import PipelinePage from './pages/PipelinePage'
 import TheaterPage from './pages/TheaterPage'
-import StoryEditorPage from './pages/StoryEditorPage'
 
 export default function App() {
   return (
@@ -11,7 +10,6 @@ export default function App() {
         <Route path="/" element={<ProjectsPage />} />
         <Route path="/pipeline/:projectId" element={<ProjectLayout><PipelinePage /></ProjectLayout>} />
         <Route path="/theater/:projectId" element={<ProjectLayout><TheaterPage /></ProjectLayout>} />
-        <Route path="/story/:projectId" element={<ProjectLayout><StoryEditorPage /></ProjectLayout>} />
       </Routes>
     </BrowserRouter>
   )
@@ -34,16 +32,6 @@ function ProjectLayout({ children }: { children: React.ReactNode }) {
           })}
         >
           Pipeline
-        </NavLink>
-        <NavLink
-          to={`/story/${projectId}`}
-          style={({ isActive }) => ({
-            padding: '4px 12px', borderRadius: 4, textDecoration: 'none',
-            background: isActive ? '#4338ca' : 'transparent',
-            color: isActive ? 'white' : '#9ca3af',
-          })}
-        >
-          Story
         </NavLink>
         <NavLink
           to={`/theater/${projectId}`}

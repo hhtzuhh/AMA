@@ -23,8 +23,12 @@ export interface Page {
   mood: string
   setting: string
   key_interaction: string
-  scene_motion: string
+  scene_motion?: string
   character_states: CharacterState[]
+  actual_page?: number
+  ref_page?: number
+  ref_source?: 'pdf' | 'custom'
+  ref_image?: string
 }
 
 export interface StoryData {

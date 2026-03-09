@@ -176,6 +176,46 @@ def reorder_pages(project_id: str, order: list[int]) -> None:
     _write_meta(pdir, meta)
 
 
+def delete_page(project_id: str, system_page: int) -> None:
+    """Remove a page from story_data.json by its system page number."""
+    path = project_dir(project_id) / "story_data.json"
+    data = json.loads(path.read_text())
+    data["pages"] = [p for p in data["pages"] if p["page"] != system_page]
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def update_page(project_id: str, system_page: int, fields: dict) -> None:
+    """Update editable fields of a page in story_data.json. page/actual_page are protected."""
+    protected = {"page", "actual_page"}
+    path = project_dir(project_id) / "story_data.json"
+    data = json.loads(path.read_text())
+    for p in data["pages"]:
+        if p["page"] == system_page:
+            for k, v in fields.items():
+                if k not in protected:
+                    p[k] = v
+            break
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def set_page_ref(project_id: str, system_page: int, ref_page: int | None = None, ref_image: str | None = None) -> None:
+    """Set the reference source for a page's background generation."""
+    path = project_dir(project_id) / "story_data.json"
+    data = json.loads(path.read_text())
+    for p in data["pages"]:
+        if p["page"] == system_page:
+            if ref_image is not None:
+                p["ref_image"] = ref_image
+                p["ref_source"] = "custom"
+                p["ref_page"] = None
+            elif ref_page is not None:
+                p["ref_page"] = ref_page
+                p["ref_source"] = "pdf"
+                p["ref_image"] = None
+            break
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
 def copy_tree(src: Path, dst: Path) -> None:
     if not src.exists():
         return
@@ -211,9 +251,9 @@ def _init_asset_tracking(project_id: str, story_data: dict) -> None:
 
     # Initialize pages
     for page in story_data.get("pages", []):
-        pnum = str(page["page"])
+        pnum = str(page.get("actual_page", page["page"]))
         if pnum not in meta.setdefault("pages", {}):
-            meta["pages"][pnum] = {"enabled": True, "order": page["page"]}
+            meta["pages"][pnum] = {"enabled": True, "order": page.get("actual_page", page["page"])}
 
     # Initialize characters + sprite states
     for char in story_data.get("characters", []):

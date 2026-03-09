@@ -251,6 +251,28 @@ export default function PipelinePage() {
     setEdges(prev => [...prev.filter(e => e.id.startsWith('e_stage')), ...pageEdges])
   }
 
+  function handlePageDeleted(pageNum: number) {
+    setNodes(prev => prev.filter(n => n.id !== `page_${pageNum}`))
+    setEdges(prev => prev.filter(e => e.source !== `page_${pageNum}` && e.target !== `page_${pageNum}`))
+    setSelected(null)
+  }
+
+  async function handlePageUpdated() {
+    if (!projectId) return
+    const r = await fetch(`${API}/api/projects/${projectId}/story`)
+    if (r.ok) {
+      const data = await r.json()
+      addPageNodes(data)
+      // Update selected node data if a page is selected
+      setSelected(prev => {
+        if (prev?.type !== 'page') return prev
+        const updatedPage = data.pages.find((p: StoryData['pages'][0]) => p.page === prev.data.page.page)
+        if (!updatedPage) return prev
+        return { type: 'page', data: { page: updatedPage } }
+      })
+    }
+  }
+
   useEffect(() => {
     if (!projectId) return
     fetch(`${API}/api/projects/${projectId}/story`)
@@ -343,6 +365,8 @@ export default function PipelinePage() {
         doneBackgrounds={doneBackgrounds}
         doneNarrations={doneNarrations}
         onManifestChange={fetchManifest}
+        onPageDeleted={handlePageDeleted}
+        onPageUpdated={handlePageUpdated}
       />
     </div>
   )

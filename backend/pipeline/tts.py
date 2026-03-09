@@ -16,7 +16,14 @@ async def run(job: Job, project_id: str) -> None:
 
 
 async def _mock(job: Job, project_id: str) -> None:
+    import shutil
     dst = assets_dir(project_id)
+    story = storage.get_story_data(project_id)
+    pages_by_system_page: dict[int, dict] = {}
+    if story:
+        for p in story.get("pages", []):
+            pages_by_system_page[p["page"]] = p
+
     files = sorted((TEST_ASSETS_DIR / "audio").glob("*.wav"))
     count = 0
 
@@ -24,17 +31,19 @@ async def _mock(job: Job, project_id: str) -> None:
         parts = src_file.stem.split("_")
         page_num = int(parts[1]) if len(parts) >= 2 else 0
 
+        page_data = pages_by_system_page.get(page_num, {})
+        actual_page = page_data.get("actual_page", page_num)
+
         job.current = {"type": "narration", "page": page_num}
         job.progress = f"Copying page {page_num} narration..."
         await asyncio.sleep(0.3)
 
-        existing = list((dst / "audio").glob(f"page_{page_num}_narration_v*.wav"))
+        existing = list((dst / "audio").glob(f"page_{actual_page}_narration_v*.wav"))
         version = len(existing) + 1
-        url = f"audio/page_{page_num}_narration_v{version}.wav"
+        url = f"audio/page_{actual_page}_narration_v{version}.wav"
 
-        import shutil
         shutil.copy2(src_file, dst / url)
-        storage.record_narration(project_id, page_num, url)
+        storage.record_narration(project_id, actual_page, url)
         job.emit({"type": "narration", "page": page_num, "status": "done", "url": url})
         count += 1
 
@@ -58,6 +67,7 @@ async def _real(job: Job, project_id: str) -> None:
 
     for page in [p for p in story["pages"] if p.get("text", "").strip()]:
         page_num = page["page"]
+        actual_page = page.get("actual_page", page_num)
         job.current = {"type": "narration", "page": page_num}
         job.progress = f"Generating page {page_num} narration..."
 
@@ -75,12 +85,12 @@ async def _real(job: Job, project_id: str) -> None:
         )
         audio_data = response.candidates[0].content.parts[0].inline_data.data
 
-        existing = list((dst / "audio").glob(f"page_{page_num}_narration_v*.wav"))
+        existing = list((dst / "audio").glob(f"page_{actual_page}_narration_v*.wav"))
         version = len(existing) + 1
-        url = f"audio/page_{page_num}_narration_v{version}.wav"
+        url = f"audio/page_{actual_page}_narration_v{version}.wav"
 
         _write_wav(dst / url, audio_data)
-        storage.record_narration(project_id, page_num, url)
+        storage.record_narration(project_id, actual_page, url)
         job.emit({"type": "narration", "page": page_num, "status": "done", "url": url})
         count += 1
         await asyncio.sleep(0.3)

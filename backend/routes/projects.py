@@ -1,3 +1,4 @@
+import pathlib
 from datetime import datetime
 from typing import Any
 from fastapi import APIRouter, HTTPException, UploadFile, File
@@ -103,3 +104,50 @@ def reorder_pages(project_id: str, body: ReorderBody):
         raise HTTPException(404, "Project not found")
     storage.reorder_pages(project_id, body.order)
     return {"ok": True}
+
+
+@router.delete("/{project_id}/pages/{page_num}")
+def delete_page(project_id: str, page_num: int):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    storage.delete_page(project_id, page_num)
+    return {"ok": True}
+
+
+class UpdatePageBody(BaseModel):
+    fields: dict[str, Any]
+
+
+@router.patch("/{project_id}/pages/{page_num}")
+def update_page(project_id: str, page_num: int, body: UpdatePageBody):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    storage.update_page(project_id, page_num, body.fields)
+    return {"ok": True}
+
+
+class SetPageRefBody(BaseModel):
+    ref_page: int | None = None
+    ref_image: str | None = None
+
+
+@router.post("/{project_id}/pages/{page_num}/ref")
+def set_page_ref(project_id: str, page_num: int, body: SetPageRefBody):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    storage.set_page_ref(project_id, page_num, ref_page=body.ref_page, ref_image=body.ref_image)
+    return {"ok": True}
+
+
+@router.post("/{project_id}/pages/{page_num}/ref-image")
+async def upload_ref_image(project_id: str, page_num: int, file: UploadFile = File(...)):
+    """Upload a custom reference image for background generation."""
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    ext = pathlib.Path(file.filename or "ref.png").suffix or ".png"
+    url = f"refs/custom_page_{page_num}{ext}"
+    path = storage.get_asset_path(project_id, url)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(await file.read())
+    storage.set_page_ref(project_id, page_num, ref_image=url)
+    return {"url": url}
