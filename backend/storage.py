@@ -147,6 +147,35 @@ def get_manifest(project_id: str) -> dict:
     }
 
 
+def update_story_data(project_id: str, data: dict) -> None:
+    """Save updated story_data.json and re-initialize asset tracking."""
+    path = project_dir(project_id) / "story_data.json"
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    _init_asset_tracking(project_id, data)
+
+
+def toggle_page(project_id: str, page_num: int) -> dict:
+    """Flip the enabled bool for a page in meta.json. Returns updated page entry."""
+    pdir = project_dir(project_id)
+    meta = _read_meta(pdir)
+    pages = meta.setdefault("pages", {})
+    page = pages.setdefault(str(page_num), {"enabled": True, "order": page_num})
+    page["enabled"] = not page.get("enabled", True)
+    _write_meta(pdir, meta)
+    return page
+
+
+def reorder_pages(project_id: str, order: list[int]) -> None:
+    """Save order indices to meta.json. order is a list of page_nums in desired display order."""
+    pdir = project_dir(project_id)
+    meta = _read_meta(pdir)
+    pages = meta.setdefault("pages", {})
+    for idx, page_num in enumerate(order):
+        page = pages.setdefault(str(page_num), {"enabled": True})
+        page["order"] = idx
+    _write_meta(pdir, meta)
+
+
 def copy_tree(src: Path, dst: Path) -> None:
     if not src.exists():
         return

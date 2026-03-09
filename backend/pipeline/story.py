@@ -5,10 +5,11 @@ Real mode: sends PDF to Gemini, returns structured story_data
 """
 import asyncio
 import json
+import re
 import shutil
 from pathlib import Path
 
-from config import MOCK_MODE, TEST_STORY_DATA, MODEL_STORY, project_dir
+from config import MOCK_MODE, TEST_STORY_DATA, MODEL_STORY, project_dir, assets_dir
 from jobs import Job
 import storage
 
@@ -35,7 +36,6 @@ async def _mock(job: Job, project_id: str) -> None:
 async def _real(job: Job, project_id: str) -> None:
     from google import genai
     from google.genai import types
-    from pydantic import BaseModel
     import os
 
     job.progress = "Reading PDF with Gemini..."
@@ -62,10 +62,62 @@ async def _real(job: Job, project_id: str) -> None:
 
     data = json.loads(response.text)
     storage.save_story_data(project_id, data)
+
+    job.progress = "Extracting character reference images..."
+    _extract_refs(project_id, data)
+
     storage.update_pipeline_status(project_id, "story", "done")
 
     job.progress = "Done"
     job.result = {"pages": len(data.get("pages", [])), "characters": len(data.get("characters", []))}
+
+
+def _extract_refs(project_id: str, story_data: dict) -> None:
+    """Extract character and scene reference images from the project's PDF using PyMuPDF."""
+    import fitz  # PyMuPDF
+    import io
+    from PIL import Image
+
+    pdir = project_dir(project_id)
+    pdf_files = list(pdir.glob("*.pdf"))
+    if not pdf_files:
+        return
+
+    pdf_path = pdf_files[0]
+    refs_dir = assets_dir(project_id) / "refs"
+    refs_dir.mkdir(parents=True, exist_ok=True)
+
+    doc = fitz.open(str(pdf_path))
+    mat = fitz.Matrix(300 / 72, 300 / 72)
+
+    def render_page_to_png(page_number: int, out_path: Path) -> None:
+        """Render a 1-based page number to a PNG file."""
+        if page_number < 1 or page_number > len(doc):
+            return
+        pix = doc[page_number - 1].get_pixmap(matrix=mat)
+        pil = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        buf = io.BytesIO()
+        pil.save(buf, format="PNG")
+        out_path.write_bytes(buf.getvalue())
+
+    # Extract per-character reference images
+    for character in story_data.get("characters", []):
+        slug = re.sub(r'\s+', '_', character["name"].strip().lower())
+        ref_path = refs_dir / f"{slug}_ref.png"
+        if ref_path.exists():
+            continue
+        page_num = character.get("best_reference_page")
+        if page_num is not None:
+            render_page_to_png(int(page_num), ref_path)
+
+    # Extract global scene reference image
+    scene_ref_path = refs_dir / "scene_ref.png"
+    if not scene_ref_path.exists():
+        scene_page_num = story_data.get("best_scene_reference_page")
+        if scene_page_num is not None:
+            render_page_to_png(int(scene_page_num), scene_ref_path)
+
+    doc.close()
 
 
 STORY_PROMPT = """

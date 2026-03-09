@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
@@ -61,4 +62,44 @@ def set_current_version(project_id: str, body: SetCurrentBody):
         raise HTTPException(404, "Project not found")
     storage.set_current_version(project_id, body.type, body.version,
                                 char=body.char, state=body.state, page=body.page)
+    return {"ok": True}
+
+
+@router.put("/{project_id}/story")
+def update_story(project_id: str, body: dict[str, Any]):
+    existing = storage.get_story_data(project_id)
+    if not existing:
+        raise HTTPException(404, "story_data.json not found")
+
+    # Validate page numbers haven't changed
+    existing_pages = {p["page"] for p in existing.get("pages", [])}
+    new_pages = {p["page"] for p in body.get("pages", [])}
+    if existing_pages != new_pages:
+        raise HTTPException(
+            400,
+            f"Page numbers may not be changed. "
+            f"Removed: {existing_pages - new_pages}, Added: {new_pages - existing_pages}"
+        )
+
+    storage.update_story_data(project_id, body)
+    return {"ok": True}
+
+
+@router.post("/{project_id}/pages/{page_num}/toggle")
+def toggle_page(project_id: str, page_num: int):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    page = storage.toggle_page(project_id, page_num)
+    return {"page": page_num, "enabled": page["enabled"]}
+
+
+class ReorderBody(BaseModel):
+    order: list[int]
+
+
+@router.post("/{project_id}/pages/reorder")
+def reorder_pages(project_id: str, body: ReorderBody):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    storage.reorder_pages(project_id, body.order)
     return {"ok": True}
