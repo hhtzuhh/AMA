@@ -277,6 +277,20 @@ def update_character(project_id: str, char_slug: str, fields: dict) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 
+def get_positions(project_id: str) -> dict:
+    """Return saved node positions from positions.json."""
+    path = project_dir(project_id) / "positions.json"
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text())
+
+
+def save_positions(project_id: str, positions: dict) -> None:
+    """Persist node positions to positions.json."""
+    path = project_dir(project_id) / "positions.json"
+    path.write_text(json.dumps(positions, indent=2))
+
+
 def copy_tree(src: Path, dst: Path) -> None:
     if not src.exists():
         return

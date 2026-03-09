@@ -7,17 +7,15 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { StoryData, Character } from '../types'
-import PipelineStageNode from '../components/pipeline/PipelineStageNode'
 import PageNode, { charSlug } from '../components/pipeline/PageNode'
 import NodePanel, { type StageInfo } from '../components/pipeline/NodePanel'
+import PipelineToolbar from '../components/pipeline/PipelineToolbar'
 
-const nodeTypes = { pipelineStage: PipelineStageNode, page: PageNode }
+const nodeTypes = { page: PageNode }
 
-const STAGE_GAP = 280
-const STAGE_Y = 0
-const PAGE_Y = 280
+const PAGE_Y = 0
 const PAGES_PER_ROW = 10
-const PAGE_GAP_X = 165
+const PAGE_GAP_X = 185
 const PAGE_GAP_Y = 220
 const API = 'http://localhost:8000'
 
@@ -41,8 +39,6 @@ export default function PipelinePage() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [selected, setSelected] = useState<AnySelected | null>(null)
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, string>>({})
-  const [pagesCollapsed, setPagesCollapsed] = useState(false)
-  const [totalPages, setTotalPages] = useState(0)
   const [pipelineStatus, setPipelineStatus] = useState<Record<string, string>>({})
   const [manifest, setManifest] = useState<Record<string, any>>({})
 
@@ -63,6 +59,25 @@ export default function PipelinePage() {
   // job polling intervals
   const pollIntervalsRef = useRef<Record<string, ReturnType<typeof setInterval>>>({})
 
+  const savePositions = useCallback((currentNodes: Node[]) => {
+    if (!projectId) return
+    const pos: Record<string, { x: number; y: number }> = {}
+    currentNodes.forEach((n: Node) => { if (n.id.startsWith('page_')) pos[n.id] = n.position })
+    fetch(`${API}/api/projects/${projectId}/positions`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pos),
+    }).catch(() => {})
+  }, [projectId])
+
+  const handleNodesChange = useCallback((changes: any[]) => {
+    onNodesChange(changes)
+    const hasDragEnd = changes.some(c => c.type === 'position' && c.dragging === false)
+    if (hasDragEnd) {
+      setTimeout(() => setNodes((current: Node[]) => { savePositions(current); return current }), 0)
+    }
+  }, [onNodesChange, savePositions, setNodes])
+
   const savePageEdges = useCallback((currentEdges: Edge[]) => {
     if (!projectId) return
     const pageEdges = currentEdges
@@ -82,7 +97,7 @@ export default function PipelinePage() {
   const onConnect = useCallback(
     (params: Connection) => {
       setEdges(eds => {
-        const newEdges = addEdge({ ...params, style: { stroke: '#374151', strokeWidth: 1 } }, eds)
+        const newEdges = addEdge({ ...params, style: { stroke: '#6366f1', strokeWidth: 2.5 } }, eds)
         savePageEdges(newEdges)
         return newEdges
       })
@@ -214,10 +229,37 @@ export default function PipelinePage() {
           clearInterval(interval)
           delete pollIntervalsRef.current[step]
           fetchManifest()
-          // After story step → load pages
+          // After story step → load pages + positions + auto-generate edges
           if (step === 'story') {
-            const r = await fetch(`${API}/api/projects/${projectId}/story`)
-            if (r.ok) addPageNodes(await r.json())
+            const [storyRes, posRes] = await Promise.all([
+              fetch(`${API}/api/projects/${projectId}/story`),
+              fetch(`${API}/api/projects/${projectId}/positions`),
+            ])
+            if (storyRes.ok) {
+              const data = await storyRes.json()
+              const savedPositions = posRes.ok ? await posRes.json() : {}
+              addPageNodes(data, savedPositions)
+              // Auto-generate sequential edges for fresh story
+              if (data.pages.length > 1) {
+                const edgesToUse = data.pages.slice(0, -1).map((p: StoryData['pages'][0], i: number) => ({
+                  from: p.page,
+                  to: data.pages[i + 1].page,
+                  label: '',
+                }))
+                fetch(`${API}/api/projects/${projectId}/edges`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ edges: edgesToUse }),
+                }).catch(() => {})
+                setEdges(edgesToUse.map((e: any) => ({
+                  id: `e_page_${e.from}_${e.to}`,
+                  source: `page_${e.from}`,
+                  target: `page_${e.to}`,
+                  style: { stroke: '#6366f1', strokeWidth: 2.5 },
+                  data: { label: '' },
+                })))
+              }
+            }
           }
         } else if (job.status === 'failed') {
           setNodeStatuses(s => ({ ...s, [nodeId]: 'Failed' }))
@@ -234,39 +276,14 @@ export default function PipelinePage() {
   }
 
   function buildStageNodes() {
-    const newNodes: Node[] = []
-    const newEdges: Edge[] = []
     const initStatuses: Record<string, string> = {}
-
-    STAGES.forEach((stage, i) => {
-      initStatuses[stage.id] = 'Pending'
-      newNodes.push({
-        id: stage.id,
-        type: 'pipelineStage',
-        position: { x: i * STAGE_GAP, y: STAGE_Y },
-        data: {
-          ...stage,
-          status: 'Pending',
-          onRun: () => runStage(stage.id, stage.step),
-          onClick: () => setSelected({ type: 'pipelineStage', data: stage }),
-        },
-      })
-      if (i > 0) {
-        newEdges.push({
-          id: `e_stage_${i - 1}_${i}`,
-          source: STAGES[i - 1].id,
-          target: stage.id,
-          style: { stroke: '#6366f1', strokeWidth: 2 },
-        })
-      }
-    })
-
+    STAGES.forEach(stage => { initStatuses[stage.id] = 'Pending' })
     setNodeStatuses(initStatuses)
-    setNodes(newNodes)
-    setEdges(newEdges)
+    setNodes([])
+    setEdges([])
   }
 
-  function addPageNodes(data: StoryData) {
+  function addPageNodes(data: StoryData, savedPositions: Record<string, { x: number; y: number }> = {}) {
     setStoryCharacters(data.characters ?? [])
 
     // Build spriteUsers map: "max/sailing" → ["page_21", ...]
@@ -281,7 +298,6 @@ export default function PipelinePage() {
     spriteUsersRef.current = spriteUsers
 
     const pageNodes: Node[] = []
-    const storyEdge: Edge[] = []
 
     data.pages.forEach((page, pi) => {
       const pageId = `page_${page.page}`
@@ -291,7 +307,7 @@ export default function PipelinePage() {
       pageNodes.push({
         id: pageId,
         type: 'page',
-        position: { x: col * PAGE_GAP_X, y: PAGE_Y + row * PAGE_GAP_Y },
+        position: savedPositions[pageId] ?? { x: col * PAGE_GAP_X, y: PAGE_Y + row * PAGE_GAP_Y },
         data: {
           page,
           status: 'Pending',
@@ -300,21 +316,9 @@ export default function PipelinePage() {
       })
     })
 
-    if (data.pages.length > 0) {
-      storyEdge.push({
-        id: 'e_story_pages',
-        source: 'stage_story',
-        sourceHandle: 'bottom',
-        target: `page_${data.pages[0].page}`,
-        animated: true,
-        style: { stroke: '#6366f1', strokeDasharray: '5 3' },
-      })
-    }
-
-    setTotalPages(data.pages.length)
     setNodeStatuses(s => ({ ...s, stage_story: 'Generated' }))
-    setNodes(prev => [...prev.filter(n => n.id.startsWith('stage_')), ...pageNodes])
-    setEdges(prev => [...prev.filter(e => e.id.startsWith('e_stage')), ...storyEdge])
+    setNodes(pageNodes)
+    setEdges([])
   }
 
   async function createCustomPage() {
@@ -344,10 +348,14 @@ export default function PipelinePage() {
 
   async function handlePageUpdated() {
     if (!projectId) return
-    const r = await fetch(`${API}/api/projects/${projectId}/story`)
+    const [r, posRes] = await Promise.all([
+      fetch(`${API}/api/projects/${projectId}/story`),
+      fetch(`${API}/api/projects/${projectId}/positions`),
+    ])
     if (r.ok) {
       const data = await r.json()
-      addPageNodes(data)
+      const savedPositions = posRes.ok ? await posRes.json() : {}
+      addPageNodes(data, savedPositions)
       // Update selected node data if a page is selected
       setSelected(prev => {
         if (prev?.type !== 'page') return prev
@@ -365,41 +373,51 @@ export default function PipelinePage() {
       .then(data => {
         buildStageNodes()
         if (data) {
-          addPageNodes(data)
-          // Load saved page edges from backend
-          fetch(`${API}/api/projects/${projectId}/edges`)
-            .then(r => r.ok ? r.json() : { edges: [] })
-            .then(({ edges }) => {
-              const rfEdges: Edge[] = edges.map((e: any) => ({
-                id: `e_page_${e.from}_${e.to}`,
-                source: `page_${e.from}`,
-                target: `page_${e.to}`,
-                label: e.label || undefined,
-                style: { stroke: '#374151', strokeWidth: 1 },
-                data: { label: e.label ?? '' },
+          // Load positions and edges in parallel, then build nodes
+          Promise.all([
+            fetch(`${API}/api/projects/${projectId}/positions`).then(r => r.ok ? r.json() : {}),
+            fetch(`${API}/api/projects/${projectId}/edges`).then(r => r.ok ? r.json() : { edges: [] }),
+          ]).then(([savedPositions, { edges: savedEdges }]) => {
+            addPageNodes(data, savedPositions)
+            // Auto-generate sequential edges if none exist
+            let edgesToUse = savedEdges
+            if (savedEdges.length === 0 && data.pages.length > 1) {
+              edgesToUse = data.pages.slice(0, -1).map((p: StoryData['pages'][0], i: number) => ({
+                from: p.page,
+                to: data.pages[i + 1].page,
+                label: '',
               }))
-              setEdges(prev => [
-                ...prev.filter(e => !e.id.startsWith('e_page_')),
-                ...rfEdges,
-              ])
-            })
-            .catch(() => {})
+              fetch(`${API}/api/projects/${projectId}/edges`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ edges: edgesToUse }),
+              }).catch(() => {})
+            }
+            const rfEdges: Edge[] = edgesToUse.map((e: any) => ({
+              id: `e_page_${e.from}_${e.to}`,
+              source: `page_${e.from}`,
+              target: `page_${e.to}`,
+              label: e.label || undefined,
+              style: { stroke: '#6366f1', strokeWidth: 2.5 },
+              data: { label: e.label ?? '' },
+            }))
+            setEdges(rfEdges)
+          }).catch(() => {})
         }
       })
       .catch(() => buildStageNodes())
   }, [projectId])
 
-  // Compute per-node display data
-  const nodesWithStatus = nodes.map(n => {
-    const isPageNode = n.id.startsWith('page_')
-    if (!isPageNode) {
-      return {
-        ...n,
-        hidden: false,
-        data: { ...n.data, status: nodeStatuses[n.id] ?? (n.data.status as string) },
-      }
-    }
+  // Build toolbar stage data
+  const toolbarStages = STAGES.map(stage => ({
+    ...stage,
+    status: nodeStatuses[stage.id] ?? 'Pending',
+    onRun: () => runStage(stage.id, stage.step),
+    onClick: () => setSelected({ type: 'pipelineStage', data: stage }),
+  }))
 
+  // Compute per-node display data (all nodes are page nodes now)
+  const nodesWithStatus = nodes.map(n => {
     const page = (n.data as any).page
     // Per-character sprite status for this page
     const charSpriteStatus: Record<string, 'done' | 'running' | 'pending'> = {}
@@ -416,7 +434,6 @@ export default function PipelinePage() {
 
     return {
       ...n,
-      hidden: pagesCollapsed,
       data: {
         ...n.data,
         status: nodeStatuses[n.id] ?? (n.data.status as string),
@@ -427,18 +444,16 @@ export default function PipelinePage() {
     }
   })
 
-  const edgesWithVisibility = edges.map(e => ({
-    ...e,
-    hidden: (e.source.startsWith('page_') || e.target.startsWith('page_')) ? pagesCollapsed : false,
-  }))
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 41px)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 41px)' }}>
+      <PipelineToolbar stages={toolbarStages} />
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
       <div style={{ flex: 1 }}>
         <ReactFlow
           nodes={nodesWithStatus}
-          edges={edgesWithVisibility}
-          onNodesChange={onNodesChange}
+          edges={edges}
+          onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
           onConnect={onConnect}
           nodeTypes={nodeTypes}
@@ -458,16 +473,6 @@ export default function PipelinePage() {
               + New Page
             </button>
           </Panel>
-          {totalPages > 0 && (
-            <Panel position="top-right">
-              <button
-                onClick={() => setPagesCollapsed(c => !c)}
-                style={{ background: '#1e1e3f', border: '1px solid #4b5563', color: '#d1d5db', borderRadius: 6, padding: '4px 12px', fontSize: 12, cursor: 'pointer' }}
-              >
-                {pagesCollapsed ? `▶ Show Pages (${totalPages})` : `▼ Collapse Pages`}
-              </button>
-            </Panel>
-          )}
         </ReactFlow>
       </div>
       <NodePanel
@@ -483,6 +488,7 @@ export default function PipelinePage() {
         onPageUpdated={handlePageUpdated}
         characters={storyCharacters}
       />
+      </div>
     </div>
   )
 }

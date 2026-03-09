@@ -164,6 +164,21 @@ class EdgesBody(BaseModel):
     edges: list[dict[str, Any]]
 
 
+@router.get("/{project_id}/positions")
+def get_positions(project_id: str):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    return storage.get_positions(project_id)
+
+
+@router.put("/{project_id}/positions")
+def save_positions(project_id: str, body: dict[str, Any]):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    storage.save_positions(project_id, body)
+    return {"ok": True}
+
+
 @router.get("/{project_id}/edges")
 def get_edges(project_id: str):
     if not storage.get_project(project_id):
