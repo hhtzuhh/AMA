@@ -15,6 +15,14 @@ async def run(job: Job, project_id: str) -> None:
         await _real(job, project_id)
 
 
+async def run_page(job: Job, project_id: str, page_num: int) -> None:
+    """Regenerate narration for a single page."""
+    if MOCK_MODE:
+        await _mock_page(job, project_id, page_num)
+    else:
+        await _real_page(job, project_id, page_num)
+
+
 async def _mock(job: Job, project_id: str) -> None:
     import shutil
     dst = assets_dir(project_id)
@@ -50,6 +58,96 @@ async def _mock(job: Job, project_id: str) -> None:
     storage.update_pipeline_status(project_id, "tts", "done")
     job.progress = "Done"
     job.result = {"audio_generated": count}
+
+
+async def _mock_page(job: Job, project_id: str, page_num: int) -> None:
+    import shutil
+    dst = assets_dir(project_id)
+    story = storage.get_story_data(project_id)
+    pages_by_system_page: dict[int, dict] = {}
+    if story:
+        for p in story.get("pages", []):
+            pages_by_system_page[p["page"]] = p
+
+    page_data = pages_by_system_page.get(page_num, {})
+    actual_page = page_data.get("actual_page", page_num)
+
+    # Try to find matching fixture; fall back to first available
+    files = sorted((TEST_ASSETS_DIR / "audio").glob("*.wav"))
+    src_file = None
+    for f in files:
+        parts = f.stem.split("_")
+        fnum = int(parts[1]) if len(parts) >= 2 else 0
+        if fnum == page_num:
+            src_file = f
+            break
+    if src_file is None and files:
+        src_file = files[0]
+    if src_file is None:
+        raise FileNotFoundError("No test wav fixture found")
+
+    job.current = {"type": "narration", "page": page_num}
+    job.progress = f"Copying page {page_num} narration..."
+    await asyncio.sleep(0.3)
+
+    (dst / "audio").mkdir(parents=True, exist_ok=True)
+    existing = list((dst / "audio").glob(f"page_{actual_page}_narration_v*.wav"))
+    version = len(existing) + 1
+    url = f"audio/page_{actual_page}_narration_v{version}.wav"
+    shutil.copy2(src_file, dst / url)
+    storage.record_narration(project_id, actual_page, url)
+    job.emit({"type": "narration", "page": page_num, "status": "done", "url": url})
+    job.progress = "Done"
+    job.result = {"audio_generated": 1}
+
+
+async def _real_page(job: Job, project_id: str, page_num: int) -> None:
+    import os
+    from google import genai
+    from google.genai import types
+
+    story = storage.get_story_data(project_id)
+    if not story:
+        raise ValueError("Run story understanding first")
+
+    page_data = next((p for p in story["pages"] if p["page"] == page_num), None)
+    if not page_data:
+        raise ValueError(f"Page {page_num} not found in story data")
+
+    text = page_data.get("text", "").strip()
+    if not text:
+        raise ValueError(f"Page {page_num} has no text to narrate")
+
+    actual_page = page_data.get("actual_page", page_num)
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    dst = assets_dir(project_id)
+
+    job.current = {"type": "narration", "page": page_num}
+    job.progress = f"Generating page {page_num} narration..."
+
+    response = client.models.generate_content(
+        model=MODEL_TTS,
+        contents=text,
+        config=types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Sulafat")
+                )
+            ),
+        ),
+    )
+    audio_data = response.candidates[0].content.parts[0].inline_data.data
+
+    (dst / "audio").mkdir(parents=True, exist_ok=True)
+    existing = list((dst / "audio").glob(f"page_{actual_page}_narration_v*.wav"))
+    version = len(existing) + 1
+    url = f"audio/page_{actual_page}_narration_v{version}.wav"
+    _write_wav(dst / url, audio_data)
+    storage.record_narration(project_id, actual_page, url)
+    job.emit({"type": "narration", "page": page_num, "status": "done", "url": url})
+    job.progress = "Done"
+    job.result = {"audio_generated": 1}
 
 
 async def _real(job: Job, project_id: str) -> None:

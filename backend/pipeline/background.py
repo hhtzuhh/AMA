@@ -15,6 +15,14 @@ async def run(job: Job, project_id: str) -> None:
         await _real(job, project_id)
 
 
+async def run_page(job: Job, project_id: str, page_num: int) -> None:
+    """Regenerate background for a single page (by system page number)."""
+    if MOCK_MODE:
+        await _mock_page(job, project_id, page_num)
+    else:
+        await _real_page(job, project_id, page_num)
+
+
 async def _mock(job: Job, project_id: str) -> None:
     import shutil
     dst = assets_dir(project_id)
@@ -52,6 +60,146 @@ async def _mock(job: Job, project_id: str) -> None:
     storage.update_pipeline_status(project_id, "background", "done")
     job.progress = "Done"
     job.result = {"videos_generated": count}
+
+
+async def _mock_page(job: Job, project_id: str, page_num: int) -> None:
+    import shutil
+    dst = assets_dir(project_id)
+    story = storage.get_story_data(project_id)
+    pages_by_system_page: dict[int, dict] = {}
+    if story:
+        for p in story.get("pages", []):
+            pages_by_system_page[p["page"]] = p
+
+    page_data = pages_by_system_page.get(page_num, {})
+    actual_page = page_data.get("actual_page", page_num)
+
+    # Try to find matching fixture; fall back to first available
+    files = sorted((TEST_ASSETS_DIR / "scenes").glob("*.mp4"))
+    src_file = None
+    for f in files:
+        parts = f.stem.split("_")
+        fnum = int(parts[1]) if len(parts) >= 2 else 0
+        if fnum == page_num:
+            src_file = f
+            break
+    if src_file is None and files:
+        src_file = files[0]
+    if src_file is None:
+        raise FileNotFoundError("No test mp4 fixture found")
+
+    job.current = {"type": "background", "page": page_num}
+    job.progress = f"Copying page {page_num} background..."
+    await asyncio.sleep(0.5)
+
+    (dst / "scenes").mkdir(parents=True, exist_ok=True)
+    existing = list((dst / "scenes").glob(f"page_{actual_page}_bg_v*.mp4"))
+    version = len(existing) + 1
+    url = f"scenes/page_{actual_page}_bg_v{version}.mp4"
+    shutil.copy2(src_file, dst / url)
+    storage.record_background(project_id, actual_page, url)
+    job.emit({"type": "background", "page": page_num, "status": "done", "url": url})
+    job.progress = "Done"
+    job.result = {"videos_generated": 1}
+
+
+async def _real_page(job: Job, project_id: str, page_num: int) -> None:
+    import os
+    from google import genai
+    from google.genai import types
+
+    story = storage.get_story_data(project_id)
+    if not story:
+        raise ValueError("Run story understanding first")
+
+    page_data = next((p for p in story["pages"] if p["page"] == page_num), None)
+    if not page_data:
+        raise ValueError(f"Page {page_num} not found in story data")
+
+    pdir = project_dir(project_id)
+    pdf_files = list(pdir.glob("*.pdf"))
+    if not pdf_files:
+        raise FileNotFoundError("No PDF found in project directory")
+    pdf_path = pdf_files[0]
+
+    def build_prompt(page_d: dict) -> str:
+        setting = page_d["setting"]
+        scene_motion = page_d["scene_motion"]
+        foreground_chars = page_d.get("foreground_characters", [])
+        background_chars = page_d.get("background_characters", [])
+        exclude_desc = ""
+        if foreground_chars:
+            exclude_desc = f"Remove and erase completely: {', '.join(foreground_chars)} — they must not appear anywhere in the scene. "
+        bg_desc = ""
+        if background_chars:
+            bg_desc = f"In the far background, completely still and small: {', '.join(background_chars)}. "
+        return (
+            f"Static fixed camera angle — absolutely no camera movement, no pan, no zoom, no dolly. "
+            f"Scene: {setting}. "
+            f"{exclude_desc}"
+            f"{bg_desc}"
+            f"{scene_motion}. "
+            f"Only natural environmental elements animate within the frame — leaves, water, light, shadows. "
+            f"No text, words, letters, or captions visible anywhere in the frame. "
+            f"Ambient environmental sound only. No music. No dialogue."
+        )
+
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    dst = assets_dir(project_id)
+    (dst / "scenes").mkdir(parents=True, exist_ok=True)
+
+    actual_page = page_data.get("actual_page", page_num)
+    job.current = {"type": "background", "page": page_num}
+    job.progress = f"Submitting page {page_num}..."
+
+    prompt = build_prompt(page_data)
+    page_ref = _get_reference_image(pdf_path, page_data, dst)
+
+    if page_ref is not None:
+        operation = client.models.generate_videos(
+            model=MODEL_VIDEO,
+            prompt=prompt,
+            config=types.GenerateVideosConfig(
+                aspect_ratio="16:9",
+                duration_seconds=8,
+                reference_images=[
+                    types.VideoGenerationReferenceImage(
+                        image=page_ref,
+                        reference_type="asset",
+                    )
+                ],
+            ),
+        )
+    else:
+        operation = client.models.generate_videos(
+            model=MODEL_VIDEO,
+            prompt=prompt,
+            config=types.GenerateVideosConfig(
+                aspect_ratio="16:9",
+                duration_seconds=8,
+            ),
+        )
+
+    job.progress = f"Submitted page {page_num}: {operation.name}. Polling..."
+    while not operation.done:
+        await asyncio.sleep(15)
+        operation = client.operations.get(operation)
+
+    if operation.response and operation.response.generated_videos:
+        existing = list((dst / "scenes").glob(f"page_{actual_page}_bg_v*.mp4"))
+        version = len(existing) + 1
+        url = f"scenes/page_{actual_page}_bg_v{version}.mp4"
+        out_path = dst / url
+        video = operation.response.generated_videos[0]
+        client.files.download(file=video.video)
+        video.video.save(str(out_path))
+        storage.record_background(project_id, actual_page, url)
+        job.emit({"type": "background", "page": page_num, "status": "done", "url": url})
+        job.result = {"videos_generated": 1}
+    else:
+        raise RuntimeError(f"Video generation failed for page {page_num}")
+
+    job.progress = "Done"
 
 
 def _get_reference_image(pdf_path, page_data: dict, dst):

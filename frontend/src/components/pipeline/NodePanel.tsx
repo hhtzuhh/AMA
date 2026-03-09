@@ -84,6 +84,7 @@ export default function NodePanel({ selected, onClose, manifest, completedSprite
           setCurrent={setCurrent}
           onPageDeleted={onPageDeleted}
           onPageUpdated={onPageUpdated}
+          onManifestChange={onManifestChange}
         />
       )}
     </div>
@@ -133,7 +134,7 @@ const EDITABLE_FIELDS: Array<{ key: string; label: string; multiline?: boolean }
   { key: 'scene_motion', label: 'Scene Motion' },
 ]
 
-function PagePanel({ page, projectId, completedSprites, doneBackgrounds, doneNarrations, getSpriteEntry, getBackgroundEntry, getNarrationEntry, assetUrl, setCurrent, onPageDeleted, onPageUpdated }: {
+function PagePanel({ page, projectId, completedSprites, doneBackgrounds, doneNarrations, getSpriteEntry, getBackgroundEntry, getNarrationEntry, assetUrl, setCurrent, onPageDeleted, onPageUpdated, onManifestChange }: {
   page: Page
   projectId: string
   completedSprites: Set<string>
@@ -146,13 +147,68 @@ function PagePanel({ page, projectId, completedSprites, doneBackgrounds, doneNar
   setCurrent: (body: object) => void
   onPageDeleted: (pageNum: number) => void
   onPageUpdated: () => void
+  onManifestChange: () => void
 }) {
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [refPageInput, setRefPageInput] = useState<string>('')
   const [settingRef, setSettingRef] = useState(false)
+  const [runningItems, setRunningItems] = useState<Set<string>>(new Set())
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const activeJobsRef = useRef<Record<string, ReturnType<typeof setInterval>>>({})
+
+  function startItemJob(jobId: string, key: string, onDone: () => void) {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API}/api/projects/${projectId}/pipeline/jobs/${jobId}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (data.status === 'done' || data.status === 'failed') {
+          clearInterval(activeJobsRef.current[key])
+          delete activeJobsRef.current[key]
+          setRunningItems(prev => {
+            const next = new Set(prev)
+            next.delete(key)
+            return next
+          })
+          onDone()
+          onManifestChange()
+        }
+      } catch {
+        // ignore transient fetch errors
+      }
+    }, 2000)
+    activeJobsRef.current[key] = interval
+    setRunningItems(prev => new Set(prev).add(key))
+  }
+
+  async function regenerateBackground() {
+    const key = 'bg'
+    if (runningItems.has(key)) return
+    const res = await fetch(`${API}/api/projects/${projectId}/pipeline/background/${actualPage}`, { method: 'POST' })
+    if (!res.ok) return
+    const { job_id } = await res.json()
+    startItemJob(job_id, key, () => {})
+  }
+
+  async function regenerateNarration() {
+    const key = 'nar'
+    if (runningItems.has(key)) return
+    const res = await fetch(`${API}/api/projects/${projectId}/pipeline/narration/${actualPage}`, { method: 'POST' })
+    if (!res.ok) return
+    const { job_id } = await res.json()
+    startItemJob(job_id, key, () => {})
+  }
+
+  async function regenerateSprite(slug: string, state: string) {
+    const key = `sprite:${slug}/${state}`
+    if (runningItems.has(key)) return
+    const res = await fetch(`${API}/api/projects/${projectId}/pipeline/sprite/${slug}/${state}`, { method: 'POST' })
+    if (!res.ok) return
+    const { job_id } = await res.json()
+    startItemJob(job_id, key, () => {})
+  }
 
   const hasDraft = Object.keys(draft).length > 0
 
@@ -322,22 +378,39 @@ function PagePanel({ page, projectId, completedSprites, doneBackgrounds, doneNar
         <Label>Sprites</Label>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {page.character_states.map(cs => {
-            const key = `${charSlug(cs.character)}/${cs.state}`
-            const done = completedSprites.has(key)
+            const slug = charSlug(cs.character)
+            const spriteKey = `${slug}/${cs.state}`
+            const itemKey = `sprite:${spriteKey}`
+            const done = completedSprites.has(spriteKey)
             const entry = done ? getSpriteEntry(cs.character, cs.state) : null
             const url = entryUrl(entry)
+            const isRunning = runningItems.has(itemKey)
             return (
-              <div key={cs.character} style={{ textAlign: 'center' }}>
+              <div key={`${cs.character}/${cs.state}`} style={{ textAlign: 'center' }}>
                 {url
                   ? <img src={url} alt={cs.state} style={{ height: 80, objectFit: 'contain', background: 'rgba(0,0,0,0.3)', borderRadius: 4 }} onError={e => { (e.target as HTMLImageElement).style.opacity = '0.15' }} />
                   : <div style={{ height: 80, width: 60, background: '#1f2937', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#4b5563' }}>Pending</div>
                 }
                 <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'capitalize', marginTop: 2 }}>{cs.character.split(' ')[0]}</div>
                 <div style={{ fontSize: 10, color: '#4b5563', textTransform: 'capitalize' }}>{cs.state}</div>
-                <VersionPicker
-                  entry={entry}
-                  onSelect={v => setCurrent({ type: 'sprite', char: charSlug(cs.character), state: cs.state, version: v })}
-                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2, justifyContent: 'center' }}>
+                  <VersionPicker
+                    entry={entry}
+                    onSelect={v => setCurrent({ type: 'sprite', char: slug, state: cs.state, version: v })}
+                  />
+                  <button
+                    onClick={() => regenerateSprite(slug, cs.state)}
+                    disabled={isRunning}
+                    style={{
+                      background: isRunning ? '#92400e' : '#374151',
+                      color: isRunning ? '#fde68a' : '#d1d5db',
+                      border: 'none', borderRadius: 4, padding: '1px 5px', fontSize: 10,
+                      cursor: isRunning ? 'not-allowed' : 'pointer', lineHeight: 1.4,
+                    }}
+                  >
+                    {isRunning ? '...' : '↻'}
+                  </button>
+                </div>
               </div>
             )
           })}
@@ -394,7 +467,21 @@ function PagePanel({ page, projectId, completedSprites, doneBackgrounds, doneNar
       {/* Background video */}
       <div style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-          <Label>Background Video</Label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Label>Background Video</Label>
+            <button
+              onClick={regenerateBackground}
+              disabled={runningItems.has('bg')}
+              style={{
+                background: runningItems.has('bg') ? '#92400e' : '#374151',
+                color: runningItems.has('bg') ? '#fde68a' : '#d1d5db',
+                border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: 10,
+                cursor: runningItems.has('bg') ? 'not-allowed' : 'pointer', lineHeight: 1.4,
+              }}
+            >
+              {runningItems.has('bg') ? '...' : '↻'}
+            </button>
+          </div>
           <VersionPicker
             entry={bgEntry}
             onSelect={v => setCurrent({ type: 'background', page: actualPage, version: v })}
@@ -409,7 +496,21 @@ function PagePanel({ page, projectId, completedSprites, doneBackgrounds, doneNar
       {/* Narration */}
       <div style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-          <Label>Narration Audio</Label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Label>Narration Audio</Label>
+            <button
+              onClick={regenerateNarration}
+              disabled={runningItems.has('nar')}
+              style={{
+                background: runningItems.has('nar') ? '#92400e' : '#374151',
+                color: runningItems.has('nar') ? '#fde68a' : '#d1d5db',
+                border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: 10,
+                cursor: runningItems.has('nar') ? 'not-allowed' : 'pointer', lineHeight: 1.4,
+              }}
+            >
+              {runningItems.has('nar') ? '...' : '↻'}
+            </button>
+          </div>
           <VersionPicker
             entry={narEntry}
             onSelect={v => setCurrent({ type: 'narration', page: actualPage, version: v })}
