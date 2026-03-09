@@ -83,7 +83,28 @@ export default function PipelinePage() {
     if (!projectId) return
     fetch(`${API}/api/projects/${projectId}/manifest`)
       .then(r => r.ok ? r.json() : null)
-      .then(m => { if (m) setManifest(m) })
+      .then(m => {
+        if (!m) return
+        setManifest(m)
+
+        // Derive completion sets from manifest so existing assets show on load
+        const sprites = new Set<string>()
+        Object.entries(m.characters ?? {}).forEach(([slug, char]: [string, any]) => {
+          Object.entries(char.sprites ?? {}).forEach(([state, entry]: [string, any]) => {
+            if (entry.current >= 0 && entry.versions?.length) sprites.add(`${slug}/${state}`)
+          })
+        })
+        const bgs = new Set<number>()
+        const nars = new Set<number>()
+        Object.entries(m.pages ?? {}).forEach(([pageNum, page]: [string, any]) => {
+          const n = Number(pageNum)
+          if (page.background?.current >= 0 && page.background?.versions?.length) bgs.add(n)
+          if (page.narration?.current >= 0 && page.narration?.versions?.length) nars.add(n)
+        })
+        setCompletedSprites(sprites)
+        setDoneBackgrounds(bgs)
+        setDoneNarrations(nars)
+      })
       .catch(() => {})
   }, [projectId])
 
