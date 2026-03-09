@@ -160,6 +160,25 @@ def update_character(project_id: str, char_slug: str, body: UpdateCharacterBody)
     return {"ok": True}
 
 
+class EdgesBody(BaseModel):
+    edges: list[dict[str, Any]]
+
+
+@router.get("/{project_id}/edges")
+def get_edges(project_id: str):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    return {"edges": storage.get_edges(project_id)}
+
+
+@router.put("/{project_id}/edges")
+def save_edges(project_id: str, body: EdgesBody):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    storage.save_edges(project_id, body.edges)
+    return {"ok": True}
+
+
 @router.post("/{project_id}/pages/{page_num}/ref-image")
 async def upload_ref_image(project_id: str, page_num: int, file: UploadFile = File(...)):
     """Upload a custom reference image for background generation."""

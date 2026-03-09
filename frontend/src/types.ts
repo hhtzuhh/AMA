@@ -31,12 +31,19 @@ export interface Page {
   ref_image?: string
 }
 
+export interface StoryEdge {
+  from: number   // system page number
+  to: number     // system page number
+  label?: string // optional condition/description
+}
+
 export interface StoryData {
   title: string
   summary: string
   best_scene_reference_page: number
   characters: Character[]
   pages: Page[]
+  edges?: StoryEdge[]
 }
 
 export interface AssetsManifest {

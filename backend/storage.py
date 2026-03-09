@@ -57,6 +57,10 @@ def update_pipeline_status(project_id: str, step: str, status: str) -> None:
 
 def save_story_data(project_id: str, data: dict) -> None:
     path = project_dir(project_id) / "story_data.json"
+    # Preserve existing edges if new data doesn't include them
+    if path.exists() and "edges" not in data:
+        existing = json.loads(path.read_text())
+        data["edges"] = existing.get("edges", [])
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
     # Initialize page and character tracking in meta
     _init_asset_tracking(project_id, data)
@@ -67,6 +71,19 @@ def get_story_data(project_id: str) -> dict | None:
     if not path.exists():
         return None
     return json.loads(path.read_text())
+
+
+def get_edges(project_id: str) -> list[dict]:
+    data = get_story_data(project_id)
+    return data.get("edges", []) if data else []
+
+
+def save_edges(project_id: str, edges: list[dict]) -> None:
+    """Save the full edges list to story_data.json."""
+    path = project_dir(project_id) / "story_data.json"
+    data = json.loads(path.read_text())
+    data["edges"] = edges
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def save_pdf(project_id: str, content: bytes, filename: str) -> Path:

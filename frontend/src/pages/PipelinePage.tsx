@@ -63,10 +63,45 @@ export default function PipelinePage() {
   // job polling intervals
   const pollIntervalsRef = useRef<Record<string, ReturnType<typeof setInterval>>>({})
 
+  const savePageEdges = useCallback((currentEdges: Edge[]) => {
+    if (!projectId) return
+    const pageEdges = currentEdges
+      .filter(e => e.source.startsWith('page_') && e.target.startsWith('page_'))
+      .map(e => ({
+        from: parseInt(e.source.replace('page_', '')),
+        to: parseInt(e.target.replace('page_', '')),
+        label: (e.data as any)?.label ?? '',
+      }))
+    fetch(`${API}/api/projects/${projectId}/edges`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ edges: pageEdges }),
+    }).catch(() => {})
+  }, [projectId])
+
   const onConnect = useCallback(
-    (params: Connection) => setEdges(eds => addEdge(params, eds)),
-    [setEdges],
+    (params: Connection) => {
+      setEdges(eds => {
+        const newEdges = addEdge({ ...params, style: { stroke: '#374151', strokeWidth: 1 } }, eds)
+        savePageEdges(newEdges)
+        return newEdges
+      })
+    },
+    [setEdges, savePageEdges],
   )
+
+  const handleEdgesChange = useCallback((changes: any[]) => {
+    onEdgesChange(changes)
+    const hasRemoval = changes.some(c => c.type === 'remove')
+    if (hasRemoval) {
+      setTimeout(() => {
+        setEdges(current => {
+          savePageEdges(current)
+          return current
+        })
+      }, 0)
+    }
+  }, [onEdgesChange, savePageEdges, setEdges])
 
   // Poll project metadata every 3s
   useEffect(() => {
@@ -246,7 +281,7 @@ export default function PipelinePage() {
     spriteUsersRef.current = spriteUsers
 
     const pageNodes: Node[] = []
-    const pageEdges: Edge[] = []
+    const storyEdge: Edge[] = []
 
     data.pages.forEach((page, pi) => {
       const pageId = `page_${page.page}`
@@ -263,31 +298,23 @@ export default function PipelinePage() {
           onClick: () => setSelected({ type: 'page', data: { page } }),
         },
       })
-
-      if (pi > 0) {
-        const prevId = `page_${data.pages[pi - 1].page}`
-        pageEdges.push({
-          id: `e_${prevId}_${pageId}`,
-          source: prevId,
-          target: pageId,
-          style: { stroke: '#374151', strokeWidth: 1 },
-        })
-      }
     })
 
-    pageEdges.push({
-      id: 'e_story_pages',
-      source: 'stage_story',
-      sourceHandle: 'bottom',
-      target: `page_${data.pages[0].page}`,
-      animated: true,
-      style: { stroke: '#6366f1', strokeDasharray: '5 3' },
-    })
+    if (data.pages.length > 0) {
+      storyEdge.push({
+        id: 'e_story_pages',
+        source: 'stage_story',
+        sourceHandle: 'bottom',
+        target: `page_${data.pages[0].page}`,
+        animated: true,
+        style: { stroke: '#6366f1', strokeDasharray: '5 3' },
+      })
+    }
 
     setTotalPages(data.pages.length)
     setNodeStatuses(s => ({ ...s, stage_story: 'Generated' }))
     setNodes(prev => [...prev.filter(n => n.id.startsWith('stage_')), ...pageNodes])
-    setEdges(prev => [...prev.filter(e => e.id.startsWith('e_stage')), ...pageEdges])
+    setEdges(prev => [...prev.filter(e => e.id.startsWith('e_stage')), ...storyEdge])
   }
 
   async function createCustomPage() {
@@ -337,7 +364,27 @@ export default function PipelinePage() {
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         buildStageNodes()
-        if (data) addPageNodes(data)
+        if (data) {
+          addPageNodes(data)
+          // Load saved page edges from backend
+          fetch(`${API}/api/projects/${projectId}/edges`)
+            .then(r => r.ok ? r.json() : { edges: [] })
+            .then(({ edges }) => {
+              const rfEdges: Edge[] = edges.map((e: any) => ({
+                id: `e_page_${e.from}_${e.to}`,
+                source: `page_${e.from}`,
+                target: `page_${e.to}`,
+                label: e.label || undefined,
+                style: { stroke: '#374151', strokeWidth: 1 },
+                data: { label: e.label ?? '' },
+              }))
+              setEdges(prev => [
+                ...prev.filter(e => !e.id.startsWith('e_page_')),
+                ...rfEdges,
+              ])
+            })
+            .catch(() => {})
+        }
       })
       .catch(() => buildStageNodes())
   }, [projectId])
@@ -392,7 +439,7 @@ export default function PipelinePage() {
           nodes={nodesWithStatus}
           edges={edgesWithVisibility}
           onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
+          onEdgesChange={handleEdgesChange}
           onConnect={onConnect}
           nodeTypes={nodeTypes}
           colorMode="dark"
