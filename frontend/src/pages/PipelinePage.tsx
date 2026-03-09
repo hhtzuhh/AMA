@@ -6,7 +6,7 @@ import {
   type Node, type Edge, type Connection,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import type { StoryData } from '../types'
+import type { StoryData, Character } from '../types'
 import PipelineStageNode from '../components/pipeline/PipelineStageNode'
 import PageNode, { charSlug } from '../components/pipeline/PageNode'
 import NodePanel, { type StageInfo } from '../components/pipeline/NodePanel'
@@ -53,6 +53,8 @@ export default function PipelinePage() {
   // Page-level background/narration done sets
   const [doneBackgrounds, setDoneBackgrounds] = useState<Set<number>>(new Set())
   const [doneNarrations, setDoneNarrations] = useState<Set<number>>(new Set())
+
+  const [storyCharacters, setStoryCharacters] = useState<Character[]>([])
 
   // spriteUsers: built from story data
   const spriteUsersRef = useRef<SpriteUserMap>({})
@@ -230,6 +232,8 @@ export default function PipelinePage() {
   }
 
   function addPageNodes(data: StoryData) {
+    setStoryCharacters(data.characters ?? [])
+
     // Build spriteUsers map: "max/sailing" → ["page_21", ...]
     const spriteUsers: SpriteUserMap = {}
     data.pages.forEach(page => {
@@ -402,6 +406,7 @@ export default function PipelinePage() {
         onManifestChange={fetchManifest}
         onPageDeleted={handlePageDeleted}
         onPageUpdated={handlePageUpdated}
+        characters={storyCharacters}
       />
     </div>
   )

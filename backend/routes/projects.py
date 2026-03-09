@@ -139,6 +139,18 @@ def set_page_ref(project_id: str, page_num: int, body: SetPageRefBody):
     return {"ok": True}
 
 
+class UpdateCharacterBody(BaseModel):
+    fields: dict[str, Any]
+
+
+@router.patch("/{project_id}/characters/{char_slug}")
+def update_character(project_id: str, char_slug: str, body: UpdateCharacterBody):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    storage.update_character(project_id, char_slug, body.fields)
+    return {"ok": True}
+
+
 @router.post("/{project_id}/pages/{page_num}/ref-image")
 async def upload_ref_image(project_id: str, page_num: int, file: UploadFile = File(...)):
     """Upload a custom reference image for background generation."""

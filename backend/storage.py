@@ -216,6 +216,21 @@ def set_page_ref(project_id: str, system_page: int, ref_page: int | None = None,
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 
+def update_character(project_id: str, char_slug: str, fields: dict) -> None:
+    """Update editable fields of a character in story_data.json. name is protected."""
+    protected = {"name"}
+    path = project_dir(project_id) / "story_data.json"
+    data = json.loads(path.read_text())
+    slug_fn = lambda name: name.lower().replace(" ", "_")
+    for c in data["characters"]:
+        if slug_fn(c["name"]) == char_slug:
+            for k, v in fields.items():
+                if k not in protected:
+                    c[k] = v
+            break
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
 def copy_tree(src: Path, dst: Path) -> None:
     if not src.exists():
         return
