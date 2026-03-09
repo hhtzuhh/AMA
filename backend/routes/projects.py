@@ -1,5 +1,6 @@
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, UploadFile, File
+from pydantic import BaseModel
 
 import storage
 
@@ -44,3 +45,20 @@ def get_manifest(project_id: str):
     if not storage.get_project(project_id):
         raise HTTPException(404, "Project not found")
     return storage.get_manifest(project_id)
+
+
+class SetCurrentBody(BaseModel):
+    type: str        # "sprite" | "background" | "narration"
+    version: int     # 0-based index
+    char: str = ""   # for sprite
+    state: str = ""  # for sprite
+    page: int = 0    # for background/narration
+
+
+@router.post("/{project_id}/manifest/set-current")
+def set_current_version(project_id: str, body: SetCurrentBody):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    storage.set_current_version(project_id, body.type, body.version,
+                                char=body.char, state=body.state, page=body.page)
+    return {"ok": True}

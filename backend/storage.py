@@ -120,6 +120,24 @@ def record_narration(project_id: str, page_num: int, url: str) -> None:
     _write_meta(pdir, meta)
 
 
+def set_current_version(project_id: str, kind: str, version: int,
+                        char: str = "", state: str = "", page: int = 0) -> None:
+    """Update the active version index for a sprite, background, or narration."""
+    pdir = project_dir(project_id)
+    meta = _read_meta(pdir)
+    if kind == "sprite":
+        entry = meta.get("characters", {}).get(char, {}).get("sprites", {}).get(state)
+    elif kind == "background":
+        entry = meta.get("pages", {}).get(str(page), {}).get("background")
+    elif kind == "narration":
+        entry = meta.get("pages", {}).get(str(page), {}).get("narration")
+    else:
+        return
+    if entry and 0 <= version < len(entry["versions"]):
+        entry["current"] = version
+        _write_meta(pdir, meta)
+
+
 def get_manifest(project_id: str) -> dict:
     """Return the characters + pages asset manifest from meta.json."""
     meta = _read_meta(project_dir(project_id))

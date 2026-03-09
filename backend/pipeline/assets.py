@@ -41,7 +41,9 @@ async def _mock(job: Job, project_id: str) -> None:
 
         out_dir = dst / "sprites" / char
         out_dir.mkdir(parents=True, exist_ok=True)
-        url = f"sprites/{char}/{state}_v1.png"
+        existing = list(out_dir.glob(f"{state}_v*.png"))
+        version = len(existing) + 1
+        url = f"sprites/{char}/{state}_v{version}.png"
         shutil.copy2(src_file, dst / url)
 
         storage.record_sprite(project_id, char, state, url)

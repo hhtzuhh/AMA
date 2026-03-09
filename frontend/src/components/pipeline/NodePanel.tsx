@@ -20,33 +20,36 @@ interface Props {
   completedSprites: Set<string>
   doneBackgrounds: Set<number>
   doneNarrations: Set<number>
+  onManifestChange: () => void
 }
 
-export default function NodePanel({ selected, onClose, manifest, completedSprites, doneBackgrounds, doneNarrations }: Props) {
+export default function NodePanel({ selected, onClose, manifest, completedSprites, doneBackgrounds, doneNarrations, onManifestChange }: Props) {
   const { projectId } = useParams<{ projectId: string }>()
 
   function assetUrl(path: string) {
     return `${API}/api/projects/${projectId}/assets/${path}`
   }
 
-  // Get current versioned URL for a sprite from manifest
-  function getSpriteUrl(charName: string, state: string): string | null {
+  function getSpriteEntry(charName: string, state: string) {
     const slug = charSlug(charName)
-    const entry = manifest?.characters?.[slug]?.sprites?.[state]
-    if (!entry || entry.current < 0 || !entry.versions?.length) return null
-    return assetUrl(entry.versions[entry.current].url)
+    return manifest?.characters?.[slug]?.sprites?.[state] ?? null
   }
 
-  function getBackgroundUrl(pageNum: number): string | null {
-    const entry = manifest?.pages?.[String(pageNum)]?.background
-    if (!entry || entry.current < 0 || !entry.versions?.length) return null
-    return assetUrl(entry.versions[entry.current].url)
+  function getBackgroundEntry(pageNum: number) {
+    return manifest?.pages?.[String(pageNum)]?.background ?? null
   }
 
-  function getNarrationUrl(pageNum: number): string | null {
-    const entry = manifest?.pages?.[String(pageNum)]?.narration
-    if (!entry || entry.current < 0 || !entry.versions?.length) return null
-    return assetUrl(entry.versions[entry.current].url)
+  function getNarrationEntry(pageNum: number) {
+    return manifest?.pages?.[String(pageNum)]?.narration ?? null
+  }
+
+  async function setCurrent(body: object) {
+    await fetch(`${API}/api/projects/${projectId}/manifest/set-current`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    onManifestChange()
   }
 
   if (!selected) {
@@ -70,9 +73,11 @@ export default function NodePanel({ selected, onClose, manifest, completedSprite
           completedSprites={completedSprites}
           doneBackgrounds={doneBackgrounds}
           doneNarrations={doneNarrations}
-          getSpriteUrl={getSpriteUrl}
-          getBackgroundUrl={getBackgroundUrl}
-          getNarrationUrl={getNarrationUrl}
+          getSpriteEntry={getSpriteEntry}
+          getBackgroundEntry={getBackgroundEntry}
+          getNarrationEntry={getNarrationEntry}
+          assetUrl={assetUrl}
+          setCurrent={setCurrent}
         />
       )}
     </div>
@@ -91,15 +96,48 @@ function StagePanel({ info }: { info: StageInfo }) {
   )
 }
 
-function PagePanel({ page, completedSprites, doneBackgrounds, doneNarrations, getSpriteUrl, getBackgroundUrl, getNarrationUrl }: {
+function VersionPicker({ entry, onSelect }: { entry: any; onSelect: (v: number) => void }) {
+  if (!entry || !entry.versions?.length) return null
+  const count = entry.versions.length
+  if (count <= 1) return <span style={{ fontSize: 10, color: '#4b5563' }}>v1</span>
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+      {entry.versions.map((_: any, i: number) => (
+        <button
+          key={i}
+          onClick={() => onSelect(i)}
+          style={{
+            fontSize: 10, padding: '1px 6px', borderRadius: 4, cursor: 'pointer', border: 'none',
+            background: entry.current === i ? '#4338ca' : '#1f2937',
+            color: entry.current === i ? 'white' : '#6b7280',
+          }}
+        >
+          v{i + 1}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function PagePanel({ page, completedSprites, doneBackgrounds, doneNarrations, getSpriteEntry, getBackgroundEntry, getNarrationEntry, assetUrl, setCurrent }: {
   page: Page
   completedSprites: Set<string>
   doneBackgrounds: Set<number>
   doneNarrations: Set<number>
-  getSpriteUrl: (char: string, state: string) => string | null
-  getBackgroundUrl: (page: number) => string | null
-  getNarrationUrl: (page: number) => string | null
+  getSpriteEntry: (char: string, state: string) => any
+  getBackgroundEntry: (page: number) => any
+  getNarrationEntry: (page: number) => any
+  assetUrl: (path: string) => string
+  setCurrent: (body: object) => void
 }) {
+  function entryUrl(entry: any): string | null {
+    if (!entry || entry.current < 0 || !entry.versions?.length) return null
+    return assetUrl(entry.versions[entry.current].url)
+  }
+
+  const bgEntry = getBackgroundEntry(page.page)
+  const narEntry = getNarrationEntry(page.page)
+
   return (
     <div>
       <h2 style={{ color: 'white', fontWeight: 'bold', fontSize: 13, marginBottom: 8 }}>Page {page.page} — {page.mood}</h2>
@@ -128,7 +166,8 @@ function PagePanel({ page, completedSprites, doneBackgrounds, doneNarrations, ge
           {page.character_states.map(cs => {
             const key = `${charSlug(cs.character)}/${cs.state}`
             const done = completedSprites.has(key)
-            const url = done ? getSpriteUrl(cs.character, cs.state) : null
+            const entry = done ? getSpriteEntry(cs.character, cs.state) : null
+            const url = entryUrl(entry)
             return (
               <div key={cs.character} style={{ textAlign: 'center' }}>
                 {url
@@ -137,6 +176,10 @@ function PagePanel({ page, completedSprites, doneBackgrounds, doneNarrations, ge
                 }
                 <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'capitalize', marginTop: 2 }}>{cs.character.split(' ')[0]}</div>
                 <div style={{ fontSize: 10, color: '#4b5563', textTransform: 'capitalize' }}>{cs.state}</div>
+                <VersionPicker
+                  entry={entry}
+                  onSelect={v => setCurrent({ type: 'sprite', char: charSlug(cs.character), state: cs.state, version: v })}
+                />
               </div>
             )
           })}
@@ -145,18 +188,30 @@ function PagePanel({ page, completedSprites, doneBackgrounds, doneNarrations, ge
 
       {/* Background video */}
       <div style={{ marginBottom: 12 }}>
-        <Label>Background Video</Label>
-        {doneBackgrounds.has(page.page) && getBackgroundUrl(page.page)
-          ? <video src={getBackgroundUrl(page.page)!} style={{ width: '100%', borderRadius: 4, background: 'black' }} controls muted preload="metadata" />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+          <Label>Background Video</Label>
+          <VersionPicker
+            entry={bgEntry}
+            onSelect={v => setCurrent({ type: 'background', page: page.page, version: v })}
+          />
+        </div>
+        {doneBackgrounds.has(page.page) && entryUrl(bgEntry)
+          ? <video key={entryUrl(bgEntry)!} src={entryUrl(bgEntry)!} style={{ width: '100%', borderRadius: 4, background: 'black' }} controls muted preload="metadata" />
           : <Pending />
         }
       </div>
 
       {/* Narration */}
       <div style={{ marginBottom: 8 }}>
-        <Label>Narration Audio</Label>
-        {doneNarrations.has(page.page) && getNarrationUrl(page.page)
-          ? <audio src={getNarrationUrl(page.page)!} controls style={{ width: '100%' }} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+          <Label>Narration Audio</Label>
+          <VersionPicker
+            entry={narEntry}
+            onSelect={v => setCurrent({ type: 'narration', page: page.page, version: v })}
+          />
+        </div>
+        {doneNarrations.has(page.page) && entryUrl(narEntry)
+          ? <audio key={entryUrl(narEntry)!} src={entryUrl(narEntry)!} controls style={{ width: '100%' }} />
           : <Pending />
         }
       </div>
@@ -169,7 +224,7 @@ function Pending() {
 }
 
 function Label({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{children}</div>
+  return <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1 }}>{children}</div>
 }
 
 function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {

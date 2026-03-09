@@ -342,6 +342,7 @@ export default function PipelinePage() {
         completedSprites={completedSprites}
         doneBackgrounds={doneBackgrounds}
         doneNarrations={doneNarrations}
+        onManifestChange={fetchManifest}
       />
     </div>
   )
