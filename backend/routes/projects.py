@@ -106,6 +106,15 @@ def reorder_pages(project_id: str, body: ReorderBody):
     return {"ok": True}
 
 
+@router.post("/{project_id}/pages")
+def add_page(project_id: str):
+    """Add a new blank custom page to story_data.json. Returns the new page."""
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    page = storage.add_page(project_id)
+    return page
+
+
 @router.delete("/{project_id}/pages/{page_num}")
 def delete_page(project_id: str, page_num: int):
     if not storage.get_project(project_id):

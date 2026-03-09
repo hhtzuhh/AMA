@@ -176,6 +176,35 @@ def reorder_pages(project_id: str, order: list[int]) -> None:
     _write_meta(pdir, meta)
 
 
+def add_page(project_id: str) -> dict:
+    """Add a new blank custom page to story_data.json. Returns the new page dict."""
+    path = project_dir(project_id) / "story_data.json"
+    data = json.loads(path.read_text())
+    existing_ids = {p["page"] for p in data.get("pages", [])}
+    new_id = max(existing_ids, default=9000) + 1
+    while new_id in existing_ids:
+        new_id += 1
+    page = {
+        "page": new_id,
+        "actual_page": None,
+        "ref_source": "custom",
+        "ref_page": None,
+        "ref_image": None,
+        "text": "",
+        "summary": "Custom page",
+        "setting": "",
+        "mood": "Neutral",
+        "scene_motion": "",
+        "key_interaction": "None",
+        "foreground_characters": [],
+        "background_characters": [],
+        "character_states": [],
+    }
+    data.setdefault("pages", []).append(page)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    return page
+
+
 def delete_page(project_id: str, system_page: int) -> None:
     """Remove a page from story_data.json by its system page number."""
     path = project_dir(project_id) / "story_data.json"

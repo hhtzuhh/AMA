@@ -290,6 +290,25 @@ export default function PipelinePage() {
     setEdges(prev => [...prev.filter(e => e.id.startsWith('e_stage')), ...pageEdges])
   }
 
+  async function createCustomPage() {
+    if (!projectId) return
+    const res = await fetch(`${API}/api/projects/${projectId}/pages`, { method: 'POST' })
+    if (!res.ok) return
+    const page = await res.json()
+    const pageId = `page_${page.page}`
+    setNodes(prev => [...prev, {
+      id: pageId,
+      type: 'page',
+      position: { x: 600, y: -100 }, // floats above main grid — orphan
+      data: {
+        page,
+        status: 'Pending',
+        onClick: () => setSelected({ type: 'page', data: { page } }),
+      },
+    }])
+    setSelected({ type: 'page', data: { page } })
+  }
+
   function handlePageDeleted(pageNum: number) {
     setNodes(prev => prev.filter(n => n.id !== `page_${pageNum}`))
     setEdges(prev => prev.filter(e => e.source !== `page_${pageNum}` && e.target !== `page_${pageNum}`))
@@ -376,6 +395,7 @@ export default function PipelinePage() {
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           nodeTypes={nodeTypes}
+          colorMode="dark"
           fitView
           fitViewOptions={{ padding: 0.15 }}
           style={{ background: '#0f0f1a' }}
@@ -383,6 +403,14 @@ export default function PipelinePage() {
           <Background color="#1e1e3f" gap={20} />
           <Controls />
           <MiniMap nodeColor="#6366f1" style={{ background: '#1a1a2e' }} />
+          <Panel position="top-left">
+            <button
+              onClick={createCustomPage}
+              style={{ background: '#1e1e3f', border: '1px solid #4b5563', color: '#d1d5db', borderRadius: 6, padding: '4px 12px', fontSize: 12, cursor: 'pointer' }}
+            >
+              + New Page
+            </button>
+          </Panel>
           {totalPages > 0 && (
             <Panel position="top-right">
               <button

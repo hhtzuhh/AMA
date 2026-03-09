@@ -10,3 +10,11 @@ body {
   color: #fff;
   font-family: system-ui, sans-serif;
 }
+
+/* React Flow attribution */
+.react-flow__attribution {
+  background: transparent !important;
+}
+.react-flow__attribution a {
+  color: #4b5563 !important;
+}
