@@ -1,0 +1,122 @@
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+
+const API = 'http://localhost:8000'
+
+interface Project {
+  project_id: string
+  pdf_name: string
+  pipeline: Record<string, string>
+}
+
+export default function ProjectsPage() {
+  const [projects, setProjects] = useState<Project[]>([])
+  const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    fetch(`${API}/api/projects`)
+      .then(r => r.json())
+      .then(data => { setProjects(data); setLoading(false) })
+      .catch(() => { setError('Backend not running — start it on :8000'); setLoading(false) })
+  }, [])
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    setError('')
+    try {
+      const form = new FormData()
+      form.append('pdf', file)
+      const res = await fetch(`${API}/api/projects`, { method: 'POST', body: form })
+      const project = await res.json()
+      navigate(`/pipeline/${project.project_id}`)
+    } catch {
+      setError('Failed to create project')
+      setUploading(false)
+    }
+  }
+
+  function pipelineProgress(pipeline: Record<string, string>) {
+    const steps = ['story', 'assets', 'background', 'tts']
+    const done = steps.filter(s => pipeline[s] === 'done').length
+    return { done, total: steps.length }
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white flex flex-col items-center py-16 px-4">
+      <h1 className="text-3xl font-bold mb-2">AMA</h1>
+      <p className="text-gray-400 mb-10 text-sm">AI-powered interactive projection theater</p>
+
+      {/* New project */}
+      <div
+        onClick={() => !uploading && fileRef.current?.click()}
+        className="w-full max-w-lg border-2 border-dashed border-indigo-600 rounded-xl p-8 text-center cursor-pointer hover:border-indigo-400 hover:bg-indigo-950/30 transition-colors mb-10"
+      >
+        <input ref={fileRef} type="file" accept=".pdf" className="hidden" onChange={handleUpload} />
+        {uploading
+          ? <p className="text-indigo-300 animate-pulse">Uploading PDF...</p>
+          : <>
+              <p className="text-2xl mb-2">＋</p>
+              <p className="text-indigo-300 font-medium">Start New Project</p>
+              <p className="text-gray-500 text-xs mt-1">Upload a PDF book</p>
+            </>
+        }
+      </div>
+
+      {/* Error */}
+      {error && <p className="text-red-400 text-sm mb-6">{error}</p>}
+
+      {/* Existing projects */}
+      {loading
+        ? <p className="text-gray-500 text-sm">Loading projects...</p>
+        : projects.length === 0
+          ? <p className="text-gray-600 text-sm">No projects yet — upload a PDF to get started.</p>
+          : (
+            <div className="w-full max-w-lg space-y-3">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-4">Previous Projects</p>
+              {projects.map(p => {
+                const { done, total } = pipelineProgress(p.pipeline)
+                return (
+                  <div
+                    key={p.project_id}
+                    onClick={() => navigate(`/pipeline/${p.project_id}`)}
+                    className="bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 cursor-pointer hover:border-indigo-500 hover:bg-gray-800 transition-colors flex items-center justify-between"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-white">{p.pdf_name}</p>
+                      <p className="text-xs text-gray-500 font-mono mt-0.5">{p.project_id}</p>
+                    </div>
+                    <div className="text-right">
+                      <PipelineDots pipeline={p.pipeline} />
+                      <p className="text-xs text-gray-500 mt-1">{done}/{total} steps</p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )
+      }
+    </div>
+  )
+}
+
+function PipelineDots({ pipeline }: { pipeline: Record<string, string> }) {
+  const steps = ['story', 'assets', 'background', 'tts']
+  const colors: Record<string, string> = {
+    done: 'bg-green-500',
+    running: 'bg-yellow-400 animate-pulse',
+    pending: 'bg-gray-600',
+  }
+  return (
+    <div className="flex gap-1 justify-end">
+      {steps.map(s => (
+        <span key={s} className={`w-2 h-2 rounded-full ${colors[pipeline[s]] ?? 'bg-gray-600'}`} title={s} />
+      ))}
+    </div>
+  )
+}

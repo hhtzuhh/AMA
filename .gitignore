@@ -1,0 +1,35 @@
+# Environment
+.env
+.env.*
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+*.egg-info/
+.uv/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Generated output assets (project outputs)
+backend/output/
+
+# Frontend public assets (test fixtures — large binaries)
+frontend/public/assets/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp

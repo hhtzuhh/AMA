@@ -1,0 +1,764 @@
+{
+  "title": "Where the Wild Things Are",
+  "summary": "A young boy named Max, dressed in a wolf suit, causes mischief and is sent to bed without supper. His room magically transforms into a wild forest, and he sails across an ocean to the land of the Wild Things. He tames the fearsome monsters, becomes their king, and leads a wild rumpus before feeling lonely and returning home to find his supper waiting for him, still hot.",
+  "best_scene_reference_page": 40,
+  "characters": [
+    {
+      "name": "Max",
+      "role": "Protagonist",
+      "personality": "Mischievous, imaginative, brave, bossy, but ultimately seeking love and comfort.",
+      "speech_style": "Authoritative, demanding, and loud.",
+      "visual_description": "A young boy wearing a white wolf suit with a hood featuring wolf ears and whiskers, a long bushy tail, and claws on the hands and feet. He later wears a golden crown.",
+      "emotions": [
+        "Angry",
+        "Mischievous",
+        "Brave",
+        "Joyful",
+        "Lonely",
+        "Peaceful"
+      ],
+      "best_reference_page": 14,
+      "sprite_states": [
+        "idle",
+        "mischievous",
+        "chasing",
+        "angry",
+        "happy",
+        "dancing",
+        "sailing",
+        "commanding",
+        "swinging",
+        "riding",
+        "lonely"
+      ]
+    },
+    {
+      "name": "The Wild Things",
+      "role": "Supporting Characters",
+      "personality": "Fearsome but easily intimidated, wild, playful, and affectionate.",
+      "speech_style": "Roaring, pleading, and dramatic.",
+      "visual_description": "Large, monstrous creatures with a mix of animal traits: horns, scales, fur, feathers, sharp teeth, yellow eyes, and bird-like or reptilian claws. Some have human-like hair or beards.",
+      "emotions": [
+        "Fierce",
+        "Scared",
+        "Playful",
+        "Sad"
+      ],
+      "best_reference_page": 25,
+      "sprite_states": [
+        "idle",
+        "sleeping",
+        "dancing",
+        "roaring",
+        "scared",
+        "swinging",
+        "marching",
+        "sad"
+      ]
+    },
+    {
+      "name": "Dog",
+      "role": "Minor Character",
+      "personality": "Energetic, easily spooked.",
+      "speech_style": "None",
+      "visual_description": "A small, fluffy white terrier dog.",
+      "emotions": [
+        "Scared"
+      ],
+      "best_reference_page": 12,
+      "sprite_states": [
+        "idle",
+        "running"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "page": 1,
+      "text": "HARPER TROPHY $4.95 US $6.95 CDN WHERE THE WILD THINGS ARE STORY AND PICTURES BY MAURICE SENDAK",
+      "summary": "The cover of the book showing a sleeping wild thing and a boat.",
+      "foreground_characters": [
+        "The Wild Things"
+      ],
+      "background_characters": [],
+      "mood": "Peaceful",
+      "setting": "A grassy shore by a river at night.",
+      "key_interaction": "A wild thing sleeps peacefully by the water.",
+      "scene_motion": "Gentle ripples on the water, stars twinkling in the night sky.",
+      "character_states": [
+        {
+          "character": "The Wild Things",
+          "state": "sleeping"
+        }
+      ]
+    },
+    {
+      "page": 2,
+      "text": "ISBN 0-06-443178-9 50495 9 780064 431781",
+      "summary": "Copyright and ISBN information.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Neutral",
+      "setting": "Blank page.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 3,
+      "text": "Winner of the Caldecott Medal for the Most Distinguished Picture Book of the Year",
+      "summary": "Award recognition text.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Proud",
+      "setting": "Blank page.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 4,
+      "text": "",
+      "summary": "Abstract illustration of colorful leaves.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Artistic",
+      "setting": "Abstract pattern.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 5,
+      "text": "",
+      "summary": "Abstract illustration of colorful leaves.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Artistic",
+      "setting": "Abstract pattern.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 6,
+      "text": "",
+      "summary": "Blank page.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Neutral",
+      "setting": "Blank page.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 7,
+      "text": "WHERE THE WILD THINGS ARE",
+      "summary": "Title text.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Anticipatory",
+      "setting": "Blank page.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 8,
+      "text": "WHERE THE WILD THINGS ARE STORY AND PICTURES BY MAURICE SENDAK Harper Trophy A Division of HarperCollinsPublishers Copyright © 1963 by Maurice Sendak • Printed in the United States of America • All rights reserved • First Harper Trophy edition, 1984 • 25th Anniversary Edition",
+      "summary": "Title page illustration showing Max dancing with two wild things.",
+      "foreground_characters": [
+        "Max",
+        "The Wild Things"
+      ],
+      "background_characters": [],
+      "mood": "Playful",
+      "setting": "White background.",
+      "key_interaction": "Max dances playfully with two wild things.",
+      "scene_motion": "None",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "dancing"
+        },
+        {
+          "character": "The Wild Things",
+          "state": "dancing"
+        }
+      ]
+    },
+    {
+      "page": 9,
+      "text": "The night Max wore his wolf suit and made mischief of one kind",
+      "summary": "Introduction to Max wearing his wolf suit.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Mischievous",
+      "setting": "Blank page.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 10,
+      "text": "",
+      "summary": "Max hammering a nail into the wall to make a tent.",
+      "foreground_characters": [
+        "Max"
+      ],
+      "background_characters": [],
+      "mood": "Mischievous",
+      "setting": "Inside Max's house.",
+      "key_interaction": "Max is hammering a nail into the wall.",
+      "scene_motion": "A slight shadow cast on the wall from the hanging cloth.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "mischievous"
+        }
+      ]
+    },
+    {
+      "page": 11,
+      "text": "and another",
+      "summary": "Text continuing the description of Max's mischief.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Mischievous",
+      "setting": "Blank page.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 12,
+      "text": "",
+      "summary": "Max chasing the family dog with a fork.",
+      "foreground_characters": [
+        "Max",
+        "Dog"
+      ],
+      "background_characters": [],
+      "mood": "Chaotic",
+      "setting": "A hallway in Max's house.",
+      "key_interaction": "Max chases the dog down the hall.",
+      "scene_motion": "Dust motes floating in the air near the stairs.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "chasing"
+        },
+        {
+          "character": "Dog",
+          "state": "running"
+        }
+      ]
+    },
+    {
+      "page": 13,
+      "text": "his mother called him \"WILD THING!\" and Max said \"I'LL EAT YOU UP!\" so he was sent to bed without eating anything.",
+      "summary": "Max is scolded by his mother and sent to bed.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Angry",
+      "setting": "Blank page.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 14,
+      "text": "",
+      "summary": "Max standing angrily in his bedroom.",
+      "foreground_characters": [
+        "Max"
+      ],
+      "background_characters": [],
+      "mood": "Angry",
+      "setting": "Max's bedroom.",
+      "key_interaction": "Max stands alone in his room, looking upset.",
+      "scene_motion": "Moonlight shining softly through the window.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "angry"
+        }
+      ]
+    },
+    {
+      "page": 15,
+      "text": "That very night in Max's room a forest grew",
+      "summary": "Text describing the beginning of the transformation.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Magical",
+      "setting": "Blank page.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 16,
+      "text": "",
+      "summary": "Trees begin to grow inside Max's bedroom.",
+      "foreground_characters": [
+        "Max"
+      ],
+      "background_characters": [],
+      "mood": "Magical",
+      "setting": "Max's bedroom, transforming into a forest.",
+      "key_interaction": "Max looks around as trees sprout from the floor.",
+      "scene_motion": "Leaves rustling slightly as the trees grow, moonlight glowing.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "idle"
+        }
+      ]
+    },
+    {
+      "page": 17,
+      "text": "and grew-",
+      "summary": "Text continuing the transformation.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Magical",
+      "setting": "Blank page.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 18,
+      "text": "",
+      "summary": "The forest grows thicker, and Max smiles.",
+      "foreground_characters": [
+        "Max"
+      ],
+      "background_characters": [],
+      "mood": "Joyful",
+      "setting": "A dense forest that used to be Max's room.",
+      "key_interaction": "Max smiles as the forest overtakes his room.",
+      "scene_motion": "Thick foliage swaying gently in a phantom breeze.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "happy"
+        }
+      ]
+    },
+    {
+      "page": 19,
+      "text": "and grew until his ceiling hung with vines and the walls became the world all around",
+      "summary": "Text describing the complete transformation of the room.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Magical",
+      "setting": "Blank page.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 20,
+      "text": "",
+      "summary": "Max dances in a fully grown forest under the moon.",
+      "foreground_characters": [
+        "Max"
+      ],
+      "background_characters": [],
+      "mood": "Wild",
+      "setting": "A dense, magical forest at night.",
+      "key_interaction": "Max dances joyfully in the forest.",
+      "scene_motion": "Moonlight filtering through the dense canopy of the forest.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "dancing"
+        }
+      ]
+    },
+    {
+      "page": 21,
+      "text": "and an ocean tumbled by with a private boat for Max and he sailed off through night and day",
+      "summary": "Max sails away in his private boat.",
+      "foreground_characters": [
+        "Max"
+      ],
+      "background_characters": [],
+      "mood": "Adventurous",
+      "setting": "An ocean with a small red sailboat.",
+      "key_interaction": "Max steers his boat across the ocean.",
+      "scene_motion": "Ocean waves rolling and crashing, sail billowing in the wind.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "sailing"
+        }
+      ]
+    },
+    {
+      "page": 22,
+      "text": "and in and out of weeks and almost over a year to where the wild things are.",
+      "summary": "Max sails past a sea monster wild thing.",
+      "foreground_characters": [
+        "Max",
+        "The Wild Things"
+      ],
+      "background_characters": [],
+      "mood": "Adventurous",
+      "setting": "The ocean, approaching an island.",
+      "key_interaction": "Max sails past a large sea monster.",
+      "scene_motion": "Water churning around the sea monster, wind blowing the sail.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "sailing"
+        },
+        {
+          "character": "The Wild Things",
+          "state": "roaring"
+        }
+      ]
+    },
+    {
+      "page": 23,
+      "text": "And when he came to the place where the wild things are they roared their terrible roars and gnashed their terrible teeth and rolled their terrible eyes and showed their terrible claws",
+      "summary": "Max arrives at the island and is greeted by roaring wild things.",
+      "foreground_characters": [
+        "Max",
+        "The Wild Things"
+      ],
+      "background_characters": [],
+      "mood": "Fearsome",
+      "setting": "The shore of the island of the Wild Things.",
+      "key_interaction": "The wild things roar at Max as he approaches in his boat.",
+      "scene_motion": "Waves crashing against the grassy shore.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "sailing"
+        },
+        {
+          "character": "The Wild Things",
+          "state": "roaring"
+        }
+      ]
+    },
+    {
+      "page": 24,
+      "text": "till Max said \"BE STILL!\" and tamed them with the magic trick of staring into all their yellow eyes without blinking once and they were frightened and called him the most wild thing of all",
+      "summary": "Max commands the wild things to be still, and they become frightened.",
+      "foreground_characters": [
+        "Max",
+        "The Wild Things"
+      ],
+      "background_characters": [],
+      "mood": "Authoritative",
+      "setting": "The island of the Wild Things at night.",
+      "key_interaction": "Max stares down the wild things, who cower in fear.",
+      "scene_motion": "Stars twinkling in the night sky, a crescent moon glowing.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "commanding"
+        },
+        {
+          "character": "The Wild Things",
+          "state": "scared"
+        }
+      ]
+    },
+    {
+      "page": 25,
+      "text": "and made him king of all wild things. \"And now,\" cried Max, \"let the wild rumpus start!\"",
+      "summary": "Max is crowned king and declares the start of the wild rumpus.",
+      "foreground_characters": [
+        "Max",
+        "The Wild Things"
+      ],
+      "background_characters": [],
+      "mood": "Triumphant",
+      "setting": "The forest on the island.",
+      "key_interaction": "Max, wearing a crown, commands the wild things.",
+      "scene_motion": "Leaves rustling in the background forest.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "commanding"
+        },
+        {
+          "character": "The Wild Things",
+          "state": "idle"
+        }
+      ]
+    },
+    {
+      "page": 26,
+      "text": "",
+      "summary": "The wild rumpus begins with howling at the moon.",
+      "foreground_characters": [
+        "Max",
+        "The Wild Things"
+      ],
+      "background_characters": [],
+      "mood": "Wild",
+      "setting": "The forest at night under a full moon.",
+      "key_interaction": "Max and the wild things dance and howl at the moon.",
+      "scene_motion": "Moonlight illuminating the night sky, stars twinkling.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "dancing"
+        },
+        {
+          "character": "The Wild Things",
+          "state": "dancing"
+        }
+      ]
+    },
+    {
+      "page": 27,
+      "text": "",
+      "summary": "The wild rumpus continues with swinging from the trees.",
+      "foreground_characters": [
+        "Max",
+        "The Wild Things"
+      ],
+      "background_characters": [],
+      "mood": "Wild",
+      "setting": "The forest canopy.",
+      "key_interaction": "Max and the wild things swing from tree branches.",
+      "scene_motion": "Tree branches swaying under the weight of the swinging characters.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "swinging"
+        },
+        {
+          "character": "The Wild Things",
+          "state": "swinging"
+        }
+      ]
+    },
+    {
+      "page": 28,
+      "text": "",
+      "summary": "The wild rumpus concludes with a marching parade.",
+      "foreground_characters": [
+        "Max",
+        "The Wild Things"
+      ],
+      "background_characters": [],
+      "mood": "Wild",
+      "setting": "The forest floor.",
+      "key_interaction": "Max rides on the back of a wild thing as they march.",
+      "scene_motion": "Leaves rustling as the parade marches through the foliage.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "riding"
+        },
+        {
+          "character": "The Wild Things",
+          "state": "marching"
+        }
+      ]
+    },
+    {
+      "page": 29,
+      "text": "\"Now stop!\" Max said and sent the wild things off to bed without their supper. And Max the king of all wild things was lonely and wanted to be where someone loved him best of all. Then all around from far away across the world he smelled good things to eat so he gave up being king of where the wild things are.",
+      "summary": "Max stops the rumpus, feels lonely, and decides to go home.",
+      "foreground_characters": [
+        "Max",
+        "The Wild Things"
+      ],
+      "background_characters": [],
+      "mood": "Lonely",
+      "setting": "A clearing in the forest at sunset.",
+      "key_interaction": "Max sits alone in a tent while the wild things sleep.",
+      "scene_motion": "A gentle sunset glow fading in the sky.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "lonely"
+        },
+        {
+          "character": "The Wild Things",
+          "state": "sleeping"
+        }
+      ]
+    },
+    {
+      "page": 30,
+      "text": "But the wild things cried, \"Oh please don't go- we'll eat you up-we love you so!\" And Max said, \"No!\" The wild things roared their terrible roars and gnashed their terrible teeth and rolled their terrible eyes and showed their terrible claws but Max stepped into his private boat and waved good-bye",
+      "summary": "Max waves goodbye to the sad wild things and sails away.",
+      "foreground_characters": [
+        "Max",
+        "The Wild Things"
+      ],
+      "background_characters": [],
+      "mood": "Bittersweet",
+      "setting": "The shore of the island.",
+      "key_interaction": "Max waves goodbye from his boat while the wild things beg him to stay.",
+      "scene_motion": "Waves lapping against the shore, wind blowing the boat's sail.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "sailing"
+        },
+        {
+          "character": "The Wild Things",
+          "state": "sad"
+        }
+      ]
+    },
+    {
+      "page": 31,
+      "text": "and sailed back over a year and in and out of weeks and through a day",
+      "summary": "Max sails back home.",
+      "foreground_characters": [
+        "Max"
+      ],
+      "background_characters": [],
+      "mood": "Peaceful",
+      "setting": "The ocean at night.",
+      "key_interaction": "Max sits peacefully in his boat.",
+      "scene_motion": "Ocean waves rolling, stars twinkling in the dark night sky.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "sailing"
+        }
+      ]
+    },
+    {
+      "page": 32,
+      "text": "and into the night of his very own room where he found his supper waiting for him",
+      "summary": "Text describing Max's return to his room.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Comforting",
+      "setting": "Blank page.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 33,
+      "text": "",
+      "summary": "Max is back in his room, taking off his wolf hood, and sees his supper.",
+      "foreground_characters": [
+        "Max"
+      ],
+      "background_characters": [],
+      "mood": "Comforting",
+      "setting": "Max's bedroom.",
+      "key_interaction": "Max smiles as he returns to his normal room.",
+      "scene_motion": "Moonlight shining brightly through the open window.",
+      "character_states": [
+        {
+          "character": "Max",
+          "state": "happy"
+        }
+      ]
+    },
+    {
+      "page": 34,
+      "text": "and it was still hot.",
+      "summary": "Final text stating the supper is still hot.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Comforting",
+      "setting": "Blank page.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 35,
+      "text": "",
+      "summary": "Blank page.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Neutral",
+      "setting": "Blank page.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 36,
+      "text": "",
+      "summary": "Abstract illustration of colorful leaves.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Artistic",
+      "setting": "Abstract pattern.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 37,
+      "text": "",
+      "summary": "Abstract illustration of colorful leaves.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Artistic",
+      "setting": "Abstract pattern.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 38,
+      "text": "Also by Maurice Sendak Winner, 1964 Caldecott Medal Winner, 1970 Hans Christian Andersen Awards Illustrators Medal Winner, 1982 American Book Award Winner, 1983 Laura Ingalls Wilder Medal Hector Protector and As I Went Over the Water: Two Nursery Rhymes Higglety Pigglety Pop! or There Must Be More to Life In the Night Kitchen Kenny's Window Maurice Sendak's Really Rosie: Starring the Nutshell Kids Nutshell Library Outside Over There The Sign on Rosie's Door Very Far Away",
+      "summary": "List of other books by the author.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Informative",
+      "setting": "Blank page.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 39,
+      "text": "",
+      "summary": "Blank page.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Neutral",
+      "setting": "Blank page.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    },
+    {
+      "page": 40,
+      "text": "Winner of the Caldecott Medal ISBN 0-06-443178-9 43178 0 46594 00495 6",
+      "summary": "Back cover showing a landscape with trees and a river.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Peaceful",
+      "setting": "A landscape with trees, a river, and a full moon.",
+      "key_interaction": "None",
+      "scene_motion": "Water flowing gently in the river, stars twinkling in the night sky.",
+      "character_states": []
+    },
+    {
+      "page": 41,
+      "text": "That 420 sure can scan Huh.?.?. ANOTHER HIGH QUALITY BOOK SCAN FROM 420",
+      "summary": "Scan credit page with anime-style characters.",
+      "foreground_characters": [],
+      "background_characters": [],
+      "mood": "Playful",
+      "setting": "A grassy field.",
+      "key_interaction": "None",
+      "scene_motion": "None",
+      "character_states": []
+    }
+  ]
+}
