@@ -174,6 +174,96 @@ def update_character(project_id: str, char_slug: str, body: UpdateCharacterBody)
     return {"ok": True}
 
 
+class AddCharacterBody(BaseModel):
+    name: str
+    role: str = ""
+    personality: str = ""
+    speech_style: str = ""
+    visual_description: str = ""
+    sprite_states: list[str] = ["idle"]
+
+
+@router.post("/{project_id}/characters")
+def create_character(project_id: str, body: AddCharacterBody):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    try:
+        char = storage.add_character(project_id, body.model_dump())
+        return char
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+class AddSpriteStateBody(BaseModel):
+    state: str
+
+
+@router.post("/{project_id}/characters/{char_slug}/sprite-states")
+def add_sprite_state(project_id: str, char_slug: str, body: AddSpriteStateBody):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    storage.add_sprite_state(project_id, char_slug, body.state)
+    return {"ok": True}
+
+
+class AssignCharRefBody(BaseModel):
+    url: str  # relative asset url, e.g. "library/my_ref.jpg"
+
+
+@router.post("/{project_id}/characters/{char_slug}/ref-image")
+async def upload_char_ref_image(project_id: str, char_slug: str, file: UploadFile = File(...)):
+    """Upload a ref image directly for a character (replaces refs/{slug}_ref.png)."""
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    dst = storage.get_asset_path(project_id, f"refs/{char_slug}_ref.png")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_bytes(await file.read())
+    return {"url": f"refs/{char_slug}_ref.png"}
+
+
+@router.post("/{project_id}/characters/{char_slug}/ref")
+def assign_char_ref(project_id: str, char_slug: str, body: AssignCharRefBody):
+    """Assign a library/project asset as the active character ref."""
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    url = storage.set_char_ref(project_id, char_slug, body.url)
+    return {"url": url}
+
+
+@router.get("/{project_id}/library")
+def get_library(project_id: str):
+    """List all project assets grouped by category."""
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    return storage.get_all_assets(project_id)
+
+
+@router.post("/{project_id}/library")
+async def upload_library(project_id: str, file: UploadFile = File(...)):
+    """Upload a file to the project library."""
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    url = storage.upload_to_library(project_id, file.filename or "upload", await file.read())
+    return {"url": url}
+
+
+class RenameBody(BaseModel):
+    url: str
+    new_name: str
+
+
+@router.post("/{project_id}/library/rename")
+def rename_asset(project_id: str, body: RenameBody):
+    """Rename a library asset."""
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    try:
+        new_url = storage.rename_library_asset(project_id, body.url, body.new_name)
+        return {"url": new_url}
+    except (ValueError, FileNotFoundError, FileExistsError) as e:
+        raise HTTPException(400, str(e))
+
+
 class EdgesBody(BaseModel):
     edges: list[dict[str, Any]]
 

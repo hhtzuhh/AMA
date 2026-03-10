@@ -298,6 +298,118 @@ def save_positions(project_id: str, positions: dict) -> None:
     path.write_text(json.dumps(positions, indent=2))
 
 
+# ── Asset Library ──────────────────────────────────────────────────────────
+
+def upload_to_library(project_id: str, filename: str, content: bytes) -> str:
+    """Save an uploaded file to assets/library/. Returns relative url."""
+    import re as _re
+    lib_dir = assets_dir(project_id) / "library"
+    lib_dir.mkdir(parents=True, exist_ok=True)
+    safe = _re.sub(r'[^a-zA-Z0-9._-]', '_', filename)
+    if '.' in safe:
+        stem, ext = safe.rsplit('.', 1)
+    else:
+        stem, ext = safe, 'bin'
+    target = lib_dir / safe
+    counter = 1
+    while target.exists():
+        target = lib_dir / f"{stem}_{counter}.{ext}"
+        counter += 1
+    target.write_bytes(content)
+    return f"library/{target.name}"
+
+
+def get_all_assets(project_id: str) -> dict:
+    """List all project assets grouped by top-level folder."""
+    adir = assets_dir(project_id)
+    result: dict[str, list] = {}
+    if not adir.exists():
+        return result
+    for f in sorted(adir.rglob("*")):
+        if not f.is_file():
+            continue
+        rel = f.relative_to(adir)
+        parts = rel.parts
+        category = parts[0] if len(parts) > 1 else "root"
+        stat = f.stat()
+        result.setdefault(category, []).append({
+            "url": str(rel).replace("\\", "/"),
+            "filename": f.name,
+            "size": stat.st_size,
+        })
+    return result
+
+
+def rename_library_asset(project_id: str, url: str, new_name: str) -> str:
+    """Rename a file in assets/library/. Returns new relative url."""
+    import re as _re
+    if not url.startswith("library/"):
+        raise ValueError("Only library assets can be renamed")
+    safe = _re.sub(r'[^a-zA-Z0-9._-]', '_', new_name)
+    src = assets_dir(project_id) / url
+    dst = src.parent / safe
+    if not src.exists():
+        raise FileNotFoundError(f"{url} not found")
+    if dst.exists():
+        raise FileExistsError(f"{safe} already exists")
+    src.rename(dst)
+    return f"library/{safe}"
+
+
+def set_char_ref(project_id: str, char_slug_val: str, src_relative: str) -> str:
+    """Copy a project asset (e.g. from library/) as the active char ref.
+    Saves to refs/{slug}_ref.png. Returns dest url."""
+    src = assets_dir(project_id) / src_relative
+    dst = assets_dir(project_id) / "refs" / f"{char_slug_val}_ref.png"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    return f"refs/{char_slug_val}_ref.png"
+
+
+def add_character(project_id: str, data: dict) -> dict:
+    """Add a new character to story_data.json. Creates story_data.json if missing."""
+    path = project_dir(project_id) / "story_data.json"
+    if path.exists():
+        story = json.loads(path.read_text())
+    else:
+        story = {"title": "", "summary": "", "characters": [], "pages": []}
+    slug_fn = lambda n: n.strip().lower().replace(" ", "_")
+    existing = {slug_fn(c["name"]) for c in story.get("characters", [])}
+    if slug_fn(data["name"]) in existing:
+        raise ValueError(f"Character '{data['name']}' already exists")
+    char = {
+        "name": data["name"],
+        "role": data.get("role", ""),
+        "personality": data.get("personality", ""),
+        "speech_style": data.get("speech_style", ""),
+        "visual_description": data.get("visual_description", ""),
+        "emotions": data.get("emotions", []),
+        "sprite_states": data.get("sprite_states", ["idle"]),
+        "best_reference_page": data.get("best_reference_page", None),
+    }
+    story.setdefault("characters", []).append(char)
+    path.write_text(json.dumps(story, indent=2, ensure_ascii=False))
+    _init_asset_tracking(project_id, story)
+    return char
+
+
+def add_sprite_state(project_id: str, char_slug: str, state: str) -> None:
+    """Append a new sprite state to a character in story_data.json (no-op if exists)."""
+    path = project_dir(project_id) / "story_data.json"
+    if not path.exists():
+        return
+    data = json.loads(path.read_text())
+    slug_fn = lambda n: n.strip().lower().replace(" ", "_")
+    for c in data.get("characters", []):
+        if slug_fn(c["name"]) == char_slug:
+            states = c.setdefault("sprite_states", [])
+            if state not in states:
+                states.append(state)
+            break
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    _init_asset_tracking(project_id, data)
+
+
 def copy_tree(src: Path, dst: Path) -> None:
     if not src.exists():
         return
