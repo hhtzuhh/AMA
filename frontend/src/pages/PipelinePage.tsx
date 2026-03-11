@@ -189,7 +189,7 @@ export default function PipelinePage() {
         const sprites = new Set<string>()
         Object.entries(m.characters ?? {}).forEach(([slug, char]: [string, any]) => {
           Object.entries(char.sprites ?? {}).forEach(([state, entry]: [string, any]) => {
-            if (entry.current >= 0 && entry.versions?.length) sprites.add(`${slug}/${state}`)
+            if (entry.versions?.length > 0) sprites.add(`${slug}/${state}`)
           })
         })
         const bgs = new Set<number>()

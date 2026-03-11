@@ -100,16 +100,18 @@ def asset_exists(project_id: str, relative: str) -> bool:
     return get_asset_path(project_id, relative).exists()
 
 
-def record_sprite(project_id: str, char_slug: str, state: str, url: str) -> None:
+def record_sprite(project_id: str, char_slug: str, state: str, url: str, generation_inputs: dict = None) -> None:
     """Record a generated sprite version in meta.json."""
     pdir = project_dir(project_id)
     meta = _read_meta(pdir)
     chars = meta.setdefault("characters", {})
     char = chars.setdefault(char_slug, {"sprites": {}})
     sprites = char.setdefault("sprites", {})
-    entry = sprites.setdefault(state, {"current": 0, "versions": []})
-    entry["versions"].append({"url": url, "created_at": datetime.utcnow().isoformat()})
-    entry["current"] = len(entry["versions"]) - 1
+    entry = sprites.setdefault(state, {"versions": []})
+    version_entry = {"url": url, "created_at": datetime.utcnow().isoformat()}
+    if generation_inputs:
+        version_entry["generation_inputs"] = generation_inputs
+    entry["versions"].append(version_entry)
     _write_meta(pdir, meta)
 
 
@@ -139,12 +141,10 @@ def record_narration(project_id: str, page_num: int, url: str) -> None:
 
 def set_current_version(project_id: str, kind: str, version: int,
                         char: str = "", state: str = "", page: int = 0) -> None:
-    """Update the active version index for a sprite, background, or narration."""
+    """Update the active version index for a background or narration."""
     pdir = project_dir(project_id)
     meta = _read_meta(pdir)
-    if kind == "sprite":
-        entry = meta.get("characters", {}).get(char, {}).get("sprites", {}).get(state)
-    elif kind == "background":
+    if kind == "background":
         entry = meta.get("pages", {}).get(str(page), {}).get("background")
     elif kind == "narration":
         entry = meta.get("pages", {}).get(str(page), {}).get("narration")
@@ -153,6 +153,23 @@ def set_current_version(project_id: str, kind: str, version: int,
     if entry and 0 <= version < len(entry["versions"]):
         entry["current"] = version
         _write_meta(pdir, meta)
+
+
+def set_page_sprite_version(project_id: str, page_num: int, char_slug_val: str, state: str, sprite_url: str) -> None:
+    """Set the sprite_url for a specific character_state on a page in story_data.json."""
+    path = project_dir(project_id) / "story_data.json"
+    if not path.exists():
+        return
+    data = json.loads(path.read_text())
+    slug_fn = lambda n: n.strip().lower().replace(" ", "_")
+    for p in data.get("pages", []):
+        if p["page"] == page_num:
+            for cs in p.get("character_states", []):
+                if slug_fn(cs["character"]) == char_slug_val and cs["state"] == state:
+                    cs["sprite_url"] = sprite_url
+                    break
+            break
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def get_manifest(project_id: str) -> dict:
@@ -456,7 +473,7 @@ def _init_asset_tracking(project_id: str, story_data: dict) -> None:
             meta["characters"][slug] = {"sprites": {}}
         for state in char.get("sprite_states", []):
             meta["characters"][slug]["sprites"].setdefault(
-                state, {"current": -1, "versions": []}
+                state, {"versions": []}
             )
 
     _write_meta(pdir, meta)

@@ -57,7 +57,12 @@ async def _mock(job: Job, project_id: str) -> None:
         url = f"sprites/{char}/{state}_v{version}.png"
         shutil.copy2(src_file, dst / url)
 
-        storage.record_sprite(project_id, char, state, url)
+        storage.record_sprite(project_id, char, state, url, generation_inputs={
+            "name": char,
+            "visual_description": "",
+            "ref_image": "",
+            "state": state,
+        })
         job.emit({"type": "sprite", "character": char, "state": state, "status": "done", "url": url})
 
     storage.copy_tree(TEST_ASSETS_DIR / "refs", dst / "refs")
@@ -100,7 +105,12 @@ async def _mock_sprite(job: Job, project_id: str, char_slug_val: str, state: str
     version = len(existing) + 1
     url = f"sprites/{char_slug_val}/{state}_v{version}.png"
     shutil.copy2(src_file, dst / url)
-    storage.record_sprite(project_id, char_slug_val, state, url)
+    storage.record_sprite(project_id, char_slug_val, state, url, generation_inputs={
+        "name": char_slug_val,
+        "visual_description": "",
+        "ref_image": "",
+        "state": state,
+    })
     job.emit({"type": "sprite", "character": char_slug_val, "state": state, "status": "done", "url": url})
     job.progress = "Done"
     job.result = {"sprites_generated": 1}
@@ -186,7 +196,12 @@ async def _real_sprite(job: Job, project_id: str, char_slug_val: str, state: str
         url = f"sprites/{char_slug_val}/idle_v{version}.png"
         out_path = dst / url
         if save_image_from_response(response, out_path):
-            storage.record_sprite(project_id, char_slug_val, "idle", url)
+            storage.record_sprite(project_id, char_slug_val, "idle", url, generation_inputs={
+                "name": character["name"],
+                "visual_description": character["visual_description"],
+                "ref_image": f"refs/{char_slug_val}_ref.png",
+                "state": "idle",
+            })
             job.emit({"type": "sprite", "character": char_slug_val, "state": "idle", "status": "done", "url": url})
             job.result = {"sprites_generated": 1}
         else:
@@ -208,7 +223,12 @@ async def _real_sprite(job: Job, project_id: str, char_slug_val: str, state: str
         url = f"sprites/{char_slug_val}/{state}_v{version}.png"
         out_path = dst / url
         if save_image_from_response(response, out_path):
-            storage.record_sprite(project_id, char_slug_val, state, url)
+            storage.record_sprite(project_id, char_slug_val, state, url, generation_inputs={
+                "name": character["name"],
+                "visual_description": character["visual_description"],
+                "ref_image": f"refs/{char_slug_val}_ref.png",
+                "state": state,
+            })
             job.emit({"type": "sprite", "character": char_slug_val, "state": state, "status": "done", "url": url})
             job.result = {"sprites_generated": 1}
         else:
@@ -300,7 +320,12 @@ async def _real(job: Job, project_id: str) -> None:
             out_path = dst / url
             if save_image_from_response(response, out_path):
                 count += 1
-                storage.record_sprite(project_id, slug, "idle", url)
+                storage.record_sprite(project_id, slug, "idle", url, generation_inputs={
+                    "name": character["name"],
+                    "visual_description": character["visual_description"],
+                    "ref_image": f"refs/{slug}_ref.png",
+                    "state": "idle",
+                })
                 job.emit({"type": "sprite", "character": slug, "state": "idle", "status": "done", "url": url})
         else:
             # Still generate idle to anchor the character, but don't save/record it
@@ -329,7 +354,12 @@ async def _real(job: Job, project_id: str) -> None:
             out_path = dst / url
             if save_image_from_response(response, out_path):
                 count += 1
-            storage.record_sprite(project_id, slug, state, url)
+            storage.record_sprite(project_id, slug, state, url, generation_inputs={
+                "name": character["name"],
+                "visual_description": character["visual_description"],
+                "ref_image": f"refs/{slug}_ref.png",
+                "state": state,
+            })
             job.emit({"type": "sprite", "character": slug, "state": state, "status": "done", "url": url})
             await asyncio.sleep(0.5)
 
