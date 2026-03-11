@@ -232,6 +232,21 @@ def assign_char_ref(project_id: str, char_slug: str, body: AssignCharRefBody):
     return {"url": url}
 
 
+class SetPageSpriteVersionBody(BaseModel):
+    char: str
+    state: str
+    sprite_url: str
+
+
+@router.patch("/{project_id}/pages/{page_num}/sprite-version")
+def set_page_sprite_version(project_id: str, page_num: int, body: SetPageSpriteVersionBody):
+    """Set which sprite version (by url) is assigned to a character_state on a specific page."""
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    storage.set_page_sprite_version(project_id, page_num, body.char, body.state, body.sprite_url)
+    return {"ok": True}
+
+
 @router.get("/{project_id}/library")
 def get_library(project_id: str):
     """List all project assets grouped by category."""

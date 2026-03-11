@@ -1,6 +1,7 @@
 export interface CharacterState {
   character: string
   state: string
+  sprite_url?: string
 }
 
 export interface Character {
@@ -44,6 +45,17 @@ export interface StoryData {
   characters: Character[]
   pages: Page[]
   edges?: StoryEdge[]
+}
+
+export interface SpriteVersion {
+  url: string
+  created_at: string
+  generation_inputs?: {
+    name: string
+    visual_description: string
+    ref_image: string
+    state: string
+  }
 }
 
 export interface AssetsManifest {

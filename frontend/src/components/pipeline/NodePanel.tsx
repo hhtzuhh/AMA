@@ -188,8 +188,6 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
   const [narSaving, setNarSaving] = useState(false)
   const [bgDraft, setBgDraft] = useState<string | null>(null)
   const [bgSaving, setBgSaving] = useState(false)
-  const [charDrafts, setCharDrafts] = useState<Record<string, string>>({})
-  const [charSaving, setCharSaving] = useState<Record<string, boolean>>({})
   const [deleting, setDeleting] = useState(false)
   const [refPageInput, setRefPageInput] = useState<string>('')
   const [settingRef, setSettingRef] = useState(false)
@@ -213,7 +211,9 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
 
   // Add character to page form
   const [showAddChar, setShowAddChar] = useState(false)
-  const [addCharForm, setAddCharForm] = useState({ name: '', visDesc: '', state: '' })
+  const [addCharMode, setAddCharMode] = useState<'existing' | 'new'>('existing')
+  const [addExisting, setAddExisting] = useState({ slug: '', state: '' })
+  const [addNew, setAddNew] = useState({ name: '', state: '', visDesc: '' })
   const [addCharRefUrl, setAddCharRefUrl] = useState('')
   const [addingChar, setAddingChar] = useState(false)
   const [addCharError, setAddCharError] = useState('')
@@ -226,7 +226,7 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
   const [bgExpanded, setBgExpanded] = useState(true)
   const [narExpanded, setNarExpanded] = useState(true)
 
-  function startItemJob(jobId: string, key: string, onDone: () => void) {
+  function startItemJob(jobId: string, key: string, onDone: (status?: string) => void) {
     const interval = setInterval(async () => {
       try {
         const res = await fetch(`${API}/api/projects/${projectId}/pipeline/jobs/${jobId}`)
@@ -240,7 +240,7 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
             next.delete(key)
             return next
           })
-          onDone()
+          onDone(data.status)
           onManifestChange()
         }
       } catch {
@@ -327,27 +327,6 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
     } finally {
       setHeaderSaving(false)
     }
-  }
-
-  // ── Character visual_description save ──────────────────────────────────
-  async function saveCharDesc(slug: string) {
-    const val = charDrafts[slug]
-    if (val === undefined) return
-    setCharSaving(prev => ({ ...prev, [slug]: true }))
-    try {
-      await fetch(`${API}/api/projects/${projectId}/characters/${slug}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: { visual_description: val } }),
-      })
-      setCharDrafts(prev => { const next = { ...prev }; delete next[slug]; return next })
-    } finally {
-      setCharSaving(prev => ({ ...prev, [slug]: false }))
-    }
-  }
-
-  function discardCharDesc(slug: string) {
-    setCharDrafts(prev => { const next = { ...prev }; delete next[slug]; return next })
   }
 
   // ── Narration text save ──────────────────────────────────────────────────
@@ -484,60 +463,140 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
     onPageUpdated()
   }
 
-  async function addCharToPage() {
-    const name = addCharForm.name.trim()
-    const state = addCharForm.state.trim().toLowerCase().replace(/\s+/g, '_')
-    if (!name || !state) return
+  async function setPageSpriteVersion(slug: string, state: string, spriteUrl: string) {
+    await fetch(`${API}/api/projects/${projectId}/pages/${page.page}/sprite-version`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ char: slug, state, sprite_url: spriteUrl }),
+    })
+    onPageUpdated()
+  }
+
+  async function addExistingCharToPage(slug: string, state: string) {
     setAddingChar(true)
     setAddCharError('')
     try {
-      const slug = name.toLowerCase().replace(/\s+/g, '_')
-      const charExists = characters.some(c => charSlug(c.name) === slug)
-      if (!charExists) {
-        const res = await fetch(`${API}/api/projects/${projectId}/characters`, {
+      const charData = characters.find(c => charSlug(c.name) === slug)
+      if (!charData) { setAddCharError('Character not found'); return }
+      if (!charData.sprite_states.includes(state)) {
+        await fetch(`${API}/api/projects/${projectId}/characters/${slug}/sprite-states`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, visual_description: addCharForm.visDesc.trim(), sprite_states: [state] }),
+          body: JSON.stringify({ state }),
         })
-        if (!res.ok) {
-          const err = await res.json()
-          setAddCharError(err.detail ?? 'Failed to create character')
-          return
-        }
-        if (addCharRefUrl) {
-          await fetch(`${API}/api/projects/${projectId}/characters/${slug}/ref`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: addCharRefUrl }),
-          })
-          setRefBusters(prev => ({ ...prev, [slug]: (prev[slug] ?? 0) + 1 }))
-        }
-      } else {
-        const charData = characters.find(c => charSlug(c.name) === slug)
-        if (charData && !charData.sprite_states.includes(state)) {
-          await fetch(`${API}/api/projects/${projectId}/characters/${slug}/sprite-states`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ state }),
-          })
-        }
       }
       const alreadyOnPage = page.character_states.some(cs => charSlug(cs.character) === slug)
       if (!alreadyOnPage) {
-        const updated = [...page.character_states, { character: name, state }]
+        const updated = [...page.character_states, { character: charData.name, state }]
         await fetch(`${API}/api/projects/${projectId}/pages/${page.page}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fields: { character_states: updated } }),
         })
       }
-      setAddCharForm({ name: '', visDesc: '', state: '' })
-      setAddCharRefUrl('')
-      setShowAddChar(false)
+      resetAddForm()
       onPageUpdated()
     } finally {
       setAddingChar(false)
     }
+  }
+
+  async function generateExistingChar(slug: string, state: string) {
+    const key = `sprite:${slug}/${state}`
+    if (runningItems.has(key)) return
+    setAddingChar(true)
+    setAddCharError('')
+    try {
+      const charData = characters.find(c => charSlug(c.name) === slug)
+      if (charData && !charData.sprite_states.includes(state)) {
+        await fetch(`${API}/api/projects/${projectId}/characters/${slug}/sprite-states`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state }),
+        })
+      }
+      const res = await fetch(`${API}/api/projects/${projectId}/pipeline/sprite/${slug}/${state}`, { method: 'POST' })
+      if (!res.ok) {
+        setAddCharError('Failed to start generation')
+        return
+      }
+      const { job_id } = await res.json()
+      // Keep form open — spinner via runningItems; close on completion
+      startItemJob(job_id, key, (status) => {
+        if (status === 'failed') {
+          setAddCharError('Generation failed')
+        } else {
+          resetAddForm()
+        }
+      })
+    } catch {
+      setAddCharError('Error starting generation')
+    } finally {
+      setAddingChar(false)
+    }
+  }
+
+  async function addNewCharToPage() {
+    const { name, state, visDesc } = addNew
+    if (!name.trim() || !state.trim()) return
+    const trimmedState = state.trim()
+    const slug = charSlug(name)
+    const key = `sprite:${slug}/${trimmedState}`
+    if (runningItems.has(key)) return
+    setAddingChar(true)
+    setAddCharError('')
+    try {
+      const res = await fetch(`${API}/api/projects/${projectId}/characters`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, visual_description: visDesc.trim(), sprite_states: [trimmedState] }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        setAddCharError(err.detail ?? 'Failed to create character')
+        return
+      }
+      if (addCharRefUrl) {
+        await fetch(`${API}/api/projects/${projectId}/characters/${slug}/ref`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: addCharRefUrl }),
+        })
+      }
+      const updated = [...page.character_states, { character: name, state: trimmedState }]
+      await fetch(`${API}/api/projects/${projectId}/pages/${page.page}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { character_states: updated } }),
+      })
+      onPageUpdated()
+      // Start sprite generation — keep form open to show spinner
+      const genRes = await fetch(`${API}/api/projects/${projectId}/pipeline/sprite/${slug}/${trimmedState}`, { method: 'POST' })
+      if (!genRes.ok) {
+        setAddCharError('Character created, but failed to start generation')
+        return
+      }
+      const { job_id } = await genRes.json()
+      startItemJob(job_id, key, (status) => {
+        if (status === 'failed') {
+          setAddCharError('Generation failed')
+        } else {
+          resetAddForm()
+        }
+      })
+    } catch {
+      setAddCharError('Error creating character')
+    } finally {
+      setAddingChar(false)
+    }
+  }
+
+  function resetAddForm() {
+    setShowAddChar(false)
+    setAddCharError('')
+    setAddExisting({ slug: '', state: '' })
+    setAddNew({ name: '', state: '', visDesc: '' })
+    setAddCharRefUrl('')
   }
 
   async function deletePage() {
@@ -560,14 +619,6 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
 
   return (
     <div>
-      {/* Hidden file input for character ref upload */}
-      <input
-        ref={charRefInputRef}
-        type="file"
-        accept="image/*"
-        style={{ display: 'none' }}
-        onChange={handleCharRefFile}
-      />
       {/* ── Page title ── */}
       <h2 style={{ color: 'white', fontWeight: 'bold', fontSize: 13, marginBottom: 16 }}>
         Page {page.page}
@@ -592,18 +643,21 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
             const allStates = charData?.sprite_states ?? []
             const stateDraft = charStateDraft[slug]
             const activeState = stateDraft !== undefined ? stateDraft : cs.state
-            const itemKey = `sprite:${slug}/${activeState}`
-            const done = completedSprites.has(`${slug}/${activeState}`)
-            const entry = done ? getSpriteEntry(cs.character, activeState) : null
-            const spriteUrl = entryUrl(entry)
-            const isRunning = runningItems.has(itemKey)
-            const currentVisDesc = charDrafts[slug] !== undefined ? charDrafts[slug] : (charData?.visual_description ?? '')
-            const hasCharDraft = slug in charDrafts
+            const entry = getSpriteEntry(cs.character, activeState)
+            const versions: any[] = entry?.versions ?? []
+
+            // Per-page selection: cs.sprite_url if set, else latest version
+            const selectedIdx = cs.sprite_url
+              ? versions.findIndex((v: any) => v.url === cs.sprite_url)
+              : versions.length - 1
+            const selectedVersion = selectedIdx >= 0 ? versions[selectedIdx] : null
+            const spriteUrl = selectedVersion ? assetUrl(selectedVersion.url) : null
+            const genInputs = selectedVersion?.generation_inputs ?? null
 
             return (
               <div key={slug} style={{ marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid #1f2937' }}>
                 {/* Name + role + remove */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                   <div>
                     <span style={{ fontSize: 12, color: '#e5e7eb', fontWeight: 'bold' }}>{cs.character}</span>
                     {charData?.role && <span style={{ marginLeft: 6, fontSize: 10, color: '#6b7280' }}>{charData.role}</span>}
@@ -612,135 +666,237 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
                     style={{ background: 'none', border: 'none', color: '#4b5563', fontSize: 16, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}>×</button>
                 </div>
 
-                {/* Ref image + upload/library */}
+                {/* State (page-level, still editable) */}
                 <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 9, color: '#4b5563', marginBottom: 3, textTransform: 'uppercase', letterSpacing: 1 }}>Reference Image</div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                    <div>
-                      <img
-                        src={`${assetUrl(`refs/${slug}_ref.png`)}?v=${refBusters[slug] ?? 0}`}
-                        alt="ref"
-                        style={{ height: 52, width: 52, objectFit: 'contain', background: 'rgba(0,0,0,0.3)', borderRadius: 4, display: 'block' }}
-                        onError={e => {
-                          const img = e.target as HTMLImageElement
-                          img.style.display = 'none'
-                          const ph = img.nextElementSibling as HTMLElement | null
-                          if (ph) ph.style.display = 'flex'
-                        }}
-                      />
-                      <div style={{ height: 52, width: 52, background: '#1f2937', borderRadius: 4, display: 'none', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: '#4b5563' }}>No ref</div>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <button
-                        onClick={() => { charRefTargetSlug.current = slug; charRefInputRef.current?.click() }}
-                        disabled={charRefUploading[slug]}
-                        style={{ background: '#1f2937', border: '1px solid #374151', color: charRefUploading[slug] ? '#6b7280' : '#9ca3af', borderRadius: 3, padding: '2px 8px', fontSize: 10, cursor: charRefUploading[slug] ? 'not-allowed' : 'pointer' }}
-                      >
-                        {charRefUploading[slug] ? '...' : '↑ Upload Ref'}
+                  <div style={{ fontSize: 9, color: '#4b5563', marginBottom: 2, textTransform: 'uppercase', letterSpacing: 1 }}>State</div>
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                    <input
+                      list={`states-${slug}`}
+                      value={activeState}
+                      onChange={e => setCharStateDraft(prev => ({ ...prev, [slug]: e.target.value }))}
+                      style={{ flex: 1, background: '#1f2937', border: '1px solid #374151', borderRadius: 4, color: '#d1d5db', fontSize: 11, padding: '3px 6px', boxSizing: 'border-box' as const, outline: stateDraft !== undefined ? '1px solid #f59e0b' : 'none' }}
+                    />
+                    <datalist id={`states-${slug}`}>
+                      {allStates.map(s => <option key={s} value={s} />)}
+                    </datalist>
+                    {stateDraft !== undefined && stateDraft !== cs.state && stateDraft.trim() && (
+                      <button onClick={() => updateCharStateOnPage(slug, stateDraft)}
+                        style={{ background: '#4338ca', color: 'white', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: 10, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
+                        Save
                       </button>
-                      <button
-                        onClick={() => setLibraryTarget({ type: 'charRef', slug, charName: cs.character })}
-                        style={{ background: '#1f2937', border: '1px solid #374151', color: '#9ca3af', borderRadius: 3, padding: '2px 8px', fontSize: 10, cursor: 'pointer' }}
-                      >
-                        📚 From Library
-                      </button>
-                    </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Visual description */}
+                {/* Sprite display */}
                 <div style={{ marginBottom: 6 }}>
-                  <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Visual Description</div>
-                  <textarea
-                    value={currentVisDesc}
-                    onChange={e => setCharDrafts(prev => ({ ...prev, [slug]: e.target.value }))}
-                    rows={3}
-                    style={{ width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4, color: '#d1d5db', fontSize: 11, padding: '4px 6px', resize: 'vertical', boxSizing: 'border-box', outline: hasCharDraft ? '1px solid #f59e0b' : 'none' }}
-                  />
-                </div>
-                {hasCharDraft && (
-                  <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                    <button onClick={() => saveCharDesc(slug)} disabled={!!charSaving[slug]}
-                      style={{ flex: 1, background: '#4338ca', color: 'white', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 10, cursor: charSaving[slug] ? 'not-allowed' : 'pointer', opacity: charSaving[slug] ? 0.7 : 1 }}>
-                      {charSaving[slug] ? 'Saving...' : 'Save'}
-                    </button>
-                    <button onClick={() => discardCharDesc(slug)} disabled={!!charSaving[slug]}
-                      style={{ flex: 1, background: '#374151', color: '#d1d5db', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 10, cursor: 'pointer' }}>
-                      Discard
-                    </button>
-                  </div>
-                )}
-
-                {/* Sprite state for THIS page */}
-                <div style={{ marginBottom: 4 }}>
-                  <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Sprite State (this page)</div>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <div style={{ flex: 1, position: 'relative' }}>
-                      <input
-                        list={`states-${slug}`}
-                        value={activeState}
-                        onChange={e => setCharStateDraft(prev => ({ ...prev, [slug]: e.target.value }))}
-                        style={{ width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4, color: '#d1d5db', fontSize: 11, padding: '3px 6px', boxSizing: 'border-box', outline: stateDraft !== undefined ? '1px solid #f59e0b' : 'none' }}
-                      />
-                      <datalist id={`states-${slug}`}>
-                        {allStates.map(s => <option key={s} value={s} />)}
-                      </datalist>
+                  <div style={{ fontSize: 9, color: '#4b5563', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1 }}>Sprite</div>
+                  {spriteUrl ? (
+                    <img src={spriteUrl} alt={activeState}
+                      style={{ height: 72, objectFit: 'contain', display: 'block', marginBottom: 6, borderRadius: 3 }}
+                      onError={e => { (e.target as HTMLImageElement).style.opacity = '0.1' }} />
+                  ) : (
+                    <div style={{ height: 48, background: '#1f2937', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#4b5563', marginBottom: 6 }}>
+                      {versions.length === 0 ? 'Not generated' : 'No sprite'}
                     </div>
-                    {spriteUrl
-                      ? <img src={spriteUrl} alt={activeState} style={{ height: 36, objectFit: 'contain', borderRadius: 3, flexShrink: 0 }} onError={e => { (e.target as HTMLImageElement).style.opacity = '0.1' }} />
-                      : <div style={{ height: 36, width: 28, background: '#1f2937', borderRadius: 3, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#4b5563', flexShrink: 0 }}>–</div>
-                    }
-                    <VersionPicker entry={entry} onSelect={v => setCurrent({ type: 'sprite', char: slug, state: activeState, version: v })} />
-                    <button
-                      onClick={() => regenerateSprite(slug, activeState)}
-                      disabled={isRunning}
-                      style={{ background: isRunning ? '#92400e' : '#374151', color: isRunning ? '#fde68a' : '#d1d5db', border: 'none', borderRadius: 4, padding: '1px 5px', fontSize: 10, cursor: isRunning ? 'not-allowed' : 'pointer', lineHeight: 1.4, flexShrink: 0 }}
-                    >
-                      {isRunning ? '...' : '↻'}
-                    </button>
-                  </div>
-                  {stateDraft !== undefined && stateDraft !== cs.state && stateDraft.trim() && (
-                    <button
-                      onClick={() => updateCharStateOnPage(slug, stateDraft)}
-                      style={{ marginTop: 5, width: '100%', background: '#4338ca', color: 'white', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 10, cursor: 'pointer' }}
-                    >
-                      Save State Change
-                    </button>
+                  )}
+
+                  {/* Version thumbnails — click to set per-page sprite_url */}
+                  {versions.length > 0 && (
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const }}>
+                      {versions.map((v: any, i: number) => (
+                        <button
+                          key={i}
+                          onClick={() => setPageSpriteVersion(slug, activeState, v.url)}
+                          title={v.generation_inputs?.visual_description ?? ''}
+                          style={{
+                            padding: 2, border: selectedIdx === i ? '2px solid #6366f1' : '1px solid #374151',
+                            borderRadius: 4, background: 'transparent', cursor: 'pointer',
+                          }}
+                        >
+                          <img src={assetUrl(v.url)} alt={`v${i + 1}`}
+                            style={{ height: 36, width: 36, objectFit: 'contain', display: 'block' }}
+                            onError={e => { (e.target as HTMLImageElement).style.opacity = '0.1' }} />
+                          <div style={{ fontSize: 9, color: selectedIdx === i ? '#a5b4fc' : '#6b7280', textAlign: 'center' as const }}>v{i + 1}</div>
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </div>
+
+                {/* Selected version's generation inputs (read-only) */}
+                {genInputs && (
+                  <div style={{ background: '#0f172a', borderRadius: 4, padding: '6px 8px' }}>
+                    <div style={{ fontSize: 9, color: '#4b5563', marginBottom: 3, textTransform: 'uppercase', letterSpacing: 1 }}>v{selectedIdx + 1} generation inputs</div>
+                    {genInputs.visual_description && (
+                      <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 4, lineHeight: 1.4 }}>
+                        <span style={{ color: '#4b5563' }}>Viz: </span>{genInputs.visual_description}
+                      </div>
+                    )}
+                    {genInputs.ref_image && (
+                      <div>
+                        <span style={{ fontSize: 10, color: '#4b5563' }}>Ref: </span>
+                        <img src={`${assetUrl(genInputs.ref_image)}?v=${refBusters[slug] ?? 0}`}
+                          alt="ref"
+                          style={{ height: 36, objectFit: 'contain', marginTop: 2, display: 'block', borderRadius: 2 }}
+                          onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )
           })}
 
-          {/* Add Character to Page */}
+          {/* Add Character form */}
           {showAddChar ? (
             <div style={{ background: '#0f172a', border: '1px solid #4338ca', borderRadius: 6, padding: 10, marginTop: 8 }}>
-              <div style={{ fontSize: 10, color: '#818cf8', marginBottom: 8, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1 }}>Add Character to Page</div>
+              {/* Hidden file input for ref upload in existing mode */}
+              <input
+                ref={charRefInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleCharRefFile}
+              />
+              <div style={{ fontSize: 10, color: '#818cf8', marginBottom: 8, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1 }}>Add Character</div>
 
-              {/* Name — datalist shows existing chars for autocomplete */}
-              <div style={{ marginBottom: 6 }}>
-                <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 2 }}>Name *</div>
-                <input
-                  autoFocus
-                  list="add-char-names"
-                  value={addCharForm.name}
-                  onChange={e => setAddCharForm(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="Character name"
-                  style={{ width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4, color: '#d1d5db', fontSize: 11, padding: '4px 6px', boxSizing: 'border-box', outline: 'none' }}
-                />
-                <datalist id="add-char-names">
-                  {characters.map(c => <option key={c.name} value={c.name} />)}
-                </datalist>
+              {/* Mode toggle */}
+              <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+                {(['existing', 'new'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => { setAddCharMode(mode); setAddCharError('') }}
+                    style={{ flex: 1, background: addCharMode === mode ? '#4338ca' : '#1f2937', color: addCharMode === mode ? 'white' : '#6b7280', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 10, cursor: 'pointer' }}
+                  >
+                    {mode === 'existing' ? 'Pick Existing' : 'New Character'}
+                  </button>
+                ))}
               </div>
 
-              {/* Ref image + visual desc — only shown for new (not existing) characters */}
-              {addCharForm.name.trim() && !characters.some(c => charSlug(c.name) === charSlug(addCharForm.name)) && (
+              {addCharMode === 'existing' ? (
                 <>
                   <div style={{ marginBottom: 6 }}>
+                    <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 2 }}>Character</div>
+                    <select
+                      value={addExisting.slug}
+                      onChange={e => setAddExisting({ slug: e.target.value, state: '' })}
+                      style={{ width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4, color: '#d1d5db', fontSize: 11, padding: '4px 6px' }}
+                    >
+                      <option value="">Select character...</option>
+                      {characters.map(c => (
+                        <option key={c.name} value={charSlug(c.name)}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {addExisting.slug && (
+                    <>
+                      <div style={{ marginBottom: 6 }}>
+                        <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 2 }}>State</div>
+                        <input
+                          list="existing-char-states"
+                          value={addExisting.state}
+                          onChange={e => setAddExisting(prev => ({ ...prev, state: e.target.value }))}
+                          placeholder="e.g. idle"
+                          style={{ width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4, color: '#d1d5db', fontSize: 11, padding: '4px 6px', boxSizing: 'border-box' as const }}
+                        />
+                        <datalist id="existing-char-states">
+                          {(characters.find(c => charSlug(c.name) === addExisting.slug)?.sprite_states ?? []).map(s => (
+                            <option key={s} value={s} />
+                          ))}
+                        </datalist>
+                      </div>
+
+                      {/* Current ref image + upload */}
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ fontSize: 9, color: '#4b5563', marginBottom: 3, textTransform: 'uppercase', letterSpacing: 1 }}>Reference Image</div>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <div>
+                            <img
+                              src={`${assetUrl(`refs/${addExisting.slug}_ref.png`)}?v=${refBusters[addExisting.slug] ?? 0}`}
+                              alt="ref"
+                              style={{ height: 44, width: 44, objectFit: 'contain', background: 'rgba(0,0,0,0.3)', borderRadius: 4, display: 'block' }}
+                              onError={e => { (e.target as HTMLImageElement).style.opacity = '0.1' }}
+                            />
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            <button
+                              onClick={() => { charRefTargetSlug.current = addExisting.slug; charRefInputRef.current?.click() }}
+                              disabled={!!charRefUploading[addExisting.slug]}
+                              style={{ background: '#1f2937', border: '1px solid #374151', color: '#9ca3af', borderRadius: 3, padding: '2px 8px', fontSize: 10, cursor: 'pointer' }}
+                            >
+                              {charRefUploading[addExisting.slug] ? '...' : '↑ Upload'}
+                            </button>
+                            <button
+                              onClick={() => setLibraryTarget({ type: 'charRef', slug: addExisting.slug, charName: characters.find(c => charSlug(c.name) === addExisting.slug)?.name ?? addExisting.slug })}
+                              style={{ background: '#1f2937', border: '1px solid #374151', color: '#9ca3af', borderRadius: 3, padding: '2px 8px', fontSize: 10, cursor: 'pointer' }}
+                            >
+                              📚 Library
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {addCharError && <div style={{ fontSize: 10, color: '#f87171', marginBottom: 6 }}>{addCharError}</div>}
+
+                  {addExisting.slug && addExisting.state.trim() && (
+                    <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+                      <button
+                        onClick={() => addExistingCharToPage(addExisting.slug, addExisting.state.trim())}
+                        disabled={addingChar}
+                        style={{ flex: 1, background: '#374151', color: '#d1d5db', border: 'none', borderRadius: 4, padding: '5px 0', fontSize: 10, cursor: addingChar ? 'not-allowed' : 'pointer' }}
+                      >
+                        Add to Page
+                      </button>
+                      <button
+                        onClick={() => generateExistingChar(addExisting.slug, addExisting.state.trim())}
+                        disabled={addingChar || runningItems.has(`sprite:${addExisting.slug}/${addExisting.state.trim()}`)}
+                        style={{ flex: 1, background: '#4338ca', color: 'white', border: 'none', borderRadius: 4, padding: '5px 0', fontSize: 10, cursor: (addingChar || runningItems.has(`sprite:${addExisting.slug}/${addExisting.state.trim()}`)) ? 'not-allowed' : 'pointer' }}
+                      >
+                        {runningItems.has(`sprite:${addExisting.slug}/${addExisting.state.trim()}`) ? '⟳ Generating...' : addingChar ? '...' : '↻ Generate New'}
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div style={{ marginBottom: 6 }}>
+                    <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 2 }}>Name *</div>
+                    <input
+                      autoFocus
+                      value={addNew.name}
+                      onChange={e => setAddNew(prev => ({ ...prev, name: e.target.value }))}
+                      placeholder="Character name"
+                      style={{ width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4, color: '#d1d5db', fontSize: 11, padding: '4px 6px', boxSizing: 'border-box' as const }}
+                    />
+                  </div>
+                  <div style={{ marginBottom: 6 }}>
+                    <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 2 }}>State for this page *</div>
+                    <input
+                      value={addNew.state}
+                      onChange={e => setAddNew(prev => ({ ...prev, state: e.target.value }))}
+                      placeholder="e.g. idle"
+                      style={{ width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4, color: '#d1d5db', fontSize: 11, padding: '4px 6px', boxSizing: 'border-box' as const }}
+                    />
+                  </div>
+                  <div style={{ marginBottom: 6 }}>
+                    <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 2 }}>Visual Description</div>
+                    <textarea
+                      value={addNew.visDesc}
+                      onChange={e => setAddNew(prev => ({ ...prev, visDesc: e.target.value }))}
+                      rows={2}
+                      placeholder="Describe appearance..."
+                      style={{ width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4, color: '#d1d5db', fontSize: 11, padding: '4px 6px', resize: 'none' as const, boxSizing: 'border-box' as const }}
+                    />
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
                     <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 2 }}>Reference Image</div>
                     {addCharRefUrl ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1f2937', border: '1px solid #374151', borderRadius: 4, padding: '3px 8px' }}>
-                        <span style={{ fontSize: 10, color: '#9ca3af', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{addCharRefUrl.split('/').pop()}</span>
+                        <span style={{ fontSize: 10, color: '#9ca3af', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{addCharRefUrl.split('/').pop()}</span>
                         <button onClick={() => setAddCharRefUrl('')} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 13, lineHeight: 1 }}>×</button>
                       </div>
                     ) : (
@@ -750,52 +906,26 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
                       </button>
                     )}
                   </div>
-                  <div style={{ marginBottom: 6 }}>
-                    <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 2 }}>Visual Description</div>
-                    <textarea
-                      value={addCharForm.visDesc}
-                      onChange={e => setAddCharForm(prev => ({ ...prev, visDesc: e.target.value }))}
-                      rows={2}
-                      placeholder="Describe appearance..."
-                      style={{ width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4, color: '#d1d5db', fontSize: 11, padding: '4px 6px', resize: 'none', boxSizing: 'border-box', outline: 'none' }}
-                    />
+
+                  {addCharError && <div style={{ fontSize: 10, color: '#f87171', marginBottom: 6 }}>{addCharError}</div>}
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button
+                      onClick={addNewCharToPage}
+                      disabled={addingChar || runningItems.has(`sprite:${charSlug(addNew.name)}/${addNew.state.trim()}`) || !addNew.name.trim() || !addNew.state.trim()}
+                      style={{ flex: 1, background: '#4338ca', color: 'white', border: 'none', borderRadius: 4, padding: '5px 0', fontSize: 11, cursor: 'pointer', opacity: (!addNew.name.trim() || !addNew.state.trim()) ? 0.5 : 1 }}
+                    >
+                      {runningItems.has(`sprite:${charSlug(addNew.name)}/${addNew.state.trim()}`) ? '⟳ Generating...' : addingChar ? 'Creating...' : 'Create & Add'}
+                    </button>
                   </div>
                 </>
               )}
 
-              {/* Sprite state — datalist shows existing states if char exists */}
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 2 }}>Sprite State for this page *</div>
-                <input
-                  list="add-char-states"
-                  value={addCharForm.state}
-                  onChange={e => setAddCharForm(prev => ({ ...prev, state: e.target.value }))}
-                  placeholder="e.g. idle"
-                  style={{ width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4, color: '#d1d5db', fontSize: 11, padding: '4px 6px', boxSizing: 'border-box', outline: 'none' }}
-                />
-                <datalist id="add-char-states">
-                  {(characters.find(c => charSlug(c.name) === charSlug(addCharForm.name))?.sprite_states ?? []).map(s => (
-                    <option key={s} value={s} />
-                  ))}
-                </datalist>
-              </div>
-
-              {addCharError && <div style={{ fontSize: 10, color: '#f87171', marginBottom: 6 }}>{addCharError}</div>}
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button
-                  onClick={addCharToPage}
-                  disabled={addingChar || !addCharForm.name.trim() || !addCharForm.state.trim()}
-                  style={{ flex: 1, background: '#4338ca', color: 'white', border: 'none', borderRadius: 4, padding: '5px 0', fontSize: 11, cursor: addingChar || !addCharForm.name.trim() || !addCharForm.state.trim() ? 'not-allowed' : 'pointer', opacity: addingChar || !addCharForm.name.trim() || !addCharForm.state.trim() ? 0.5 : 1 }}
-                >
-                  {addingChar ? 'Adding...' : 'Add to Page'}
-                </button>
-                <button
-                  onClick={() => { setShowAddChar(false); setAddCharError(''); setAddCharForm({ name: '', visDesc: '', state: '' }); setAddCharRefUrl('') }}
-                  style={{ background: '#374151', color: '#d1d5db', border: 'none', borderRadius: 4, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}
-                >
-                  Cancel
-                </button>
-              </div>
+              <button
+                onClick={resetAddForm}
+                style={{ width: '100%', background: '#374151', color: '#d1d5db', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 10, cursor: 'pointer', marginTop: 6 }}
+              >
+                Cancel
+              </button>
             </div>
           ) : (
             <button onClick={() => setShowAddChar(true)}
