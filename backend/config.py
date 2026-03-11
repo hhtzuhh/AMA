@@ -17,9 +17,9 @@ TEST_STORY_DATA = TEST_DIR / "story_data.json"
 TEST_ASSETS_DIR = TEST_DIR / "assets"
 
 # Gemini models
-MODEL_STORY = "gemini-2.5-pro-preview-06-05"
-MODEL_SPRITE = "gemini-2.0-flash-preview-image-generation"
-MODEL_VIDEO = "veo-2.0-generate-001"
+MODEL_STORY = "gemini-3.1-pro-preview"
+MODEL_SPRITE = "gemini-3-pro-image-preview"
+MODEL_VIDEO = "veo-3.1-generate-preview"
 MODEL_TTS = "gemini-2.5-flash-preview-tts"
 
 

@@ -1,8 +1,27 @@
+import logging
 from fastapi import FastAPI
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s  [%(name)s] %(message)s",
+)
 from fastapi.middleware.cors import CORSMiddleware
 
 from routes import projects, pipeline, assets
 from config import MOCK_MODE
+
+# Suppress noisy access logs for frequent polling endpoints
+class _PollFilter(logging.Filter):
+    def filter(self, record):
+        msg = record.getMessage()
+        # suppress frequent polling endpoints
+        if "GET /api/projects/" in msg and "/pipeline/jobs/" not in msg:
+            return False
+        if "/pipeline/jobs/" in msg:
+            return False
+        return True
+
+logging.getLogger("uvicorn.access").addFilter(_PollFilter())
 
 app = FastAPI(title="AMA API")
 
