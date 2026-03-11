@@ -2,10 +2,13 @@
 Pipeline Step 3: Background Scene Generation (linear, per page)
 """
 import asyncio
+import logging
 
 from config import MOCK_MODE, TEST_ASSETS_DIR, assets_dir, MODEL_VIDEO, project_dir
 from jobs import Job
 import storage
+
+log = logging.getLogger("pipeline.background")
 
 
 async def run(job: Job, project_id: str) -> None:
@@ -151,12 +154,14 @@ async def _real_page(job: Job, project_id: str, page_num: int) -> None:
     actual_page = page_data.get("actual_page", page_num)
     job.current = {"type": "background", "page": page_num}
     job.progress = f"Submitting page {page_num}..."
+    log.info("Submitting background generation for page %d...", page_num)
 
     prompt = build_prompt(page_data)
     page_ref = _get_reference_image(pdf_path, page_data, dst)
 
     if page_ref is not None:
-        operation = client.models.generate_videos(
+        operation = await asyncio.to_thread(
+            client.models.generate_videos,
             model=MODEL_VIDEO,
             prompt=prompt,
             config=types.GenerateVideosConfig(
@@ -171,7 +176,8 @@ async def _real_page(job: Job, project_id: str, page_num: int) -> None:
             ),
         )
     else:
-        operation = client.models.generate_videos(
+        operation = await asyncio.to_thread(
+            client.models.generate_videos,
             model=MODEL_VIDEO,
             prompt=prompt,
             config=types.GenerateVideosConfig(
@@ -181,9 +187,10 @@ async def _real_page(job: Job, project_id: str, page_num: int) -> None:
         )
 
     job.progress = f"Submitted page {page_num}: {operation.name}. Polling..."
+    log.info("Submitted page %d: %s — polling every 15s...", page_num, operation.name)
     while not operation.done:
         await asyncio.sleep(15)
-        operation = client.operations.get(operation)
+        operation = await asyncio.to_thread(client.operations.get, operation)
 
     if operation.response and operation.response.generated_videos:
         existing = list((dst / "scenes").glob(f"page_{actual_page}_bg_v*.mp4"))
@@ -191,7 +198,7 @@ async def _real_page(job: Job, project_id: str, page_num: int) -> None:
         url = f"scenes/page_{actual_page}_bg_v{version}.mp4"
         out_path = dst / url
         video = operation.response.generated_videos[0]
-        client.files.download(file=video.video)
+        await asyncio.to_thread(client.files.download, file=video.video)
         video.video.save(str(out_path))
         storage.record_background(project_id, actual_page, url)
         job.emit({"type": "background", "page": page_num, "status": "done", "url": url})
@@ -306,7 +313,8 @@ async def _real(job: Job, project_id: str) -> None:
         page_ref = _get_reference_image(pdf_path, page, dst)
 
         if page_ref is not None:
-            operation = client.models.generate_videos(
+            operation = await asyncio.to_thread(
+                client.models.generate_videos,
                 model=MODEL_VIDEO,
                 prompt=prompt,
                 config=types.GenerateVideosConfig(
@@ -321,7 +329,8 @@ async def _real(job: Job, project_id: str) -> None:
                 ),
             )
         else:
-            operation = client.models.generate_videos(
+            operation = await asyncio.to_thread(
+                client.models.generate_videos,
                 model=MODEL_VIDEO,
                 prompt=prompt,
                 config=types.GenerateVideosConfig(
@@ -339,12 +348,13 @@ async def _real(job: Job, project_id: str) -> None:
 
     # Poll all until done
     job.progress = f"Polling {len(operations)} operations..."
+    log.info("Polling %d background operations every 15s...", len(operations))
     pending = dict(operations)
     while pending:
         await asyncio.sleep(15)
         done_pages = []
         for page_num, (op, actual_page) in list(pending.items()):
-            op = client.operations.get(op)
+            op = await asyncio.to_thread(client.operations.get, op)
             pending[page_num] = (op, actual_page)
             if op.done:
                 done_pages.append(page_num)
@@ -354,7 +364,7 @@ async def _real(job: Job, project_id: str) -> None:
                     url = f"scenes/page_{actual_page}_bg_v{version}.mp4"
                     out_path = dst / url
                     video = op.response.generated_videos[0]
-                    client.files.download(file=video.video)
+                    await asyncio.to_thread(client.files.download, file=video.video)
                     video.video.save(str(out_path))
                     storage.record_background(project_id, actual_page, url)
                     job.emit({"type": "background", "page": page_num, "status": "done", "url": url})
@@ -365,6 +375,7 @@ async def _real(job: Job, project_id: str) -> None:
 
         if pending:
             job.progress = f"Still waiting: pages {list(pending.keys())}"
+            log.info("Still waiting on pages: %s", list(pending.keys()))
 
     storage.update_pipeline_status(project_id, "background", "done")
     job.result = {"videos_generated": count}

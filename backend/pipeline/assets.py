@@ -3,9 +3,12 @@ Pipeline Step 2: Asset Generation (Character Sprites)
 Folder: assets/sprites/{character_slug}/{state}_v{n}.png
 """
 import asyncio
+import logging
 import re
 import shutil
 from datetime import datetime
+
+log = logging.getLogger("pipeline.assets")
 
 from config import MOCK_MODE, TEST_ASSETS_DIR, assets_dir, MODEL_SPRITE
 from jobs import Job
@@ -150,6 +153,7 @@ async def _real_sprite(job: Job, project_id: str, char_slug_val: str, state: str
                 pil_image = remove_background(img_part.image_bytes)
                 pil_image.save(output_path)
                 return True
+        log.warning("No image in response for %s. Parts: %s", output_path, [str(p)[:100] for p in response.parts])
         return False
 
     ref_path = refs_dir / f"{char_slug_val}_ref.png"
@@ -170,7 +174,11 @@ async def _real_sprite(job: Job, project_id: str, char_slug_val: str, state: str
     job.progress = f"Generating {char_slug_val}/idle (anchor)..."
 
     chat = client.chats.create(model=MODEL_SPRITE, config=config)
-    response = chat.send_message([first_prompt, ref_image])
+    try:
+        response = await asyncio.to_thread(chat.send_message, [first_prompt, ref_image])
+    except Exception as e:
+        log.error("Gemini error on %s/idle: %s", char_slug_val, e)
+        raise
 
     if state == "idle":
         existing = list(char_dir.glob("idle_v*.png"))
@@ -193,7 +201,7 @@ async def _real_sprite(job: Job, project_id: str, char_slug_val: str, state: str
             f"Now show them in a '{state}' pose/expression. "
             f"Solid bright green background (#00FF00). No shadows. Full body visible."
         )
-        response = chat.send_message(state_prompt)
+        response = await asyncio.to_thread(chat.send_message, state_prompt)
 
         existing = list(char_dir.glob(f"{state}_v*.png"))
         version = len(existing) + 1
@@ -247,6 +255,7 @@ async def _real(job: Job, project_id: str) -> None:
                 pil_image = remove_background(img_part.image_bytes)
                 pil_image.save(output_path)
                 return True
+        log.warning("No image in response for %s. Parts: %s", output_path, [str(p)[:100] for p in response.parts])
         return False
 
     for character in story["characters"]:
@@ -273,10 +282,15 @@ async def _real(job: Job, project_id: str) -> None:
 
         job.current = {"character": slug, "state": "idle"}
         job.progress = f"Generating {slug}/idle (anchor)..."
+        log.info("Generating sprite %s/idle (anchor)...", slug)
 
         # Start multi-turn chat for character consistency
         chat = client.chats.create(model=MODEL_SPRITE, config=config)
-        response = chat.send_message([first_prompt, ref_image])
+        try:
+            response = await asyncio.to_thread(chat.send_message, [first_prompt, ref_image])
+        except Exception as e:
+            log.error("Gemini error on %s/idle: %s", slug, e)
+            raise
 
         # Determine if idle should be saved (it's in sprite_states)
         if "idle" in sprite_states:
@@ -300,13 +314,14 @@ async def _real(job: Job, project_id: str) -> None:
 
             job.current = {"character": slug, "state": state}
             job.progress = f"Generating {slug}/{state}..."
+            log.info("Generating sprite %s/%s...", slug, state)
 
             state_prompt = (
                 f"Keep the exact same character ({character['name']}) and illustration style. "
                 f"Now show them in a '{state}' pose/expression. "
                 f"Solid bright green background (#00FF00). No shadows. Full body visible."
             )
-            response = chat.send_message(state_prompt)
+            response = await asyncio.to_thread(chat.send_message, state_prompt)
 
             existing = list(char_dir.glob(f"{state}_v*.png"))
             version = len(existing) + 1

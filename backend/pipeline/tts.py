@@ -2,10 +2,33 @@
 Pipeline Step 4: TTS Narration (linear, per page)
 """
 import asyncio
+import logging
 
 from config import MOCK_MODE, TEST_ASSETS_DIR, assets_dir, MODEL_TTS
 from jobs import Job
 import storage
+
+log = logging.getLogger("pipeline.tts")
+
+
+def _build_narrator_prompt(title: str, text: str, mood: str, setting: str) -> str:
+    return f"""# AUDIO PROFILE: The Narrator
+## "Children's Story Time"
+
+## THE SCENE
+A cozy, quiet reading room. A warm lamp glows softly. Children are gathered,
+sitting still, eyes wide, completely absorbed. The story is "{title}".
+The mood of this moment is {mood}. The setting is {setting}.
+
+### DIRECTOR'S NOTES
+Style: Warm, gentle, storytelling grandparent. Inviting and expressive —
+bring the scene to life with subtle emotion. Not theatrical, just alive.
+Pace: Unhurried. Let the words breathe. Slight pauses between sentences
+to let children absorb the images.
+Tone: Soft but clear. Every word lands.
+
+#### TRANSCRIPT
+{text}"""
 
 
 async def run(job: Job, project_id: str) -> None:
@@ -124,19 +147,26 @@ async def _real_page(job: Job, project_id: str, page_num: int) -> None:
 
     job.current = {"type": "narration", "page": page_num}
     job.progress = f"Generating page {page_num} narration..."
+    print(f"[tts] Generating narration for page {page_num}...")
 
-    response = client.models.generate_content(
-        model=MODEL_TTS,
-        contents=text,
-        config=types.GenerateContentConfig(
-            response_modalities=["AUDIO"],
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Sulafat")
-                )
+    prompt = _build_narrator_prompt(story["title"], text, page_data.get("mood", ""), page_data.get("setting", ""))
+    try:
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=MODEL_TTS,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Sulafat")
+                    )
+                ),
             ),
-        ),
-    )
+        )
+    except Exception as e:
+        log.error("Gemini error on page %d: %s", page_num, e)
+        raise
     audio_data = response.candidates[0].content.parts[0].inline_data.data
 
     (dst / "audio").mkdir(parents=True, exist_ok=True)
@@ -168,19 +198,26 @@ async def _real(job: Job, project_id: str) -> None:
         actual_page = page.get("actual_page", page_num)
         job.current = {"type": "narration", "page": page_num}
         job.progress = f"Generating page {page_num} narration..."
+        log.info("Generating narration for page %d...", page_num)
 
-        response = client.models.generate_content(
-            model=MODEL_TTS,
-            contents=page["text"].strip(),
-            config=types.GenerateContentConfig(
-                response_modalities=["AUDIO"],
-                speech_config=types.SpeechConfig(
-                    voice_config=types.VoiceConfig(
-                        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Sulafat")
-                    )
+        prompt = _build_narrator_prompt(story["title"], page["text"].strip(), page.get("mood", ""), page.get("setting", ""))
+        try:
+            response = await asyncio.to_thread(
+                client.models.generate_content,
+                model=MODEL_TTS,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_modalities=["AUDIO"],
+                    speech_config=types.SpeechConfig(
+                        voice_config=types.VoiceConfig(
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Sulafat")
+                        )
+                    ),
                 ),
-            ),
-        )
+            )
+        except Exception as e:
+            log.error("Gemini error on page %d: %s", page_num, e)
+            raise
         audio_data = response.candidates[0].content.parts[0].inline_data.data
 
         existing = list((dst / "audio").glob(f"page_{actual_page}_narration_v*.wav"))

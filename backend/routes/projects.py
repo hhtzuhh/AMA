@@ -50,9 +50,11 @@ def get_project(project_id: str):
 
 @router.get("/{project_id}/story")
 def get_story_data(project_id: str):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
     data = storage.get_story_data(project_id)
     if not data:
-        raise HTTPException(404, "story_data.json not found")
+        return None  # 200 with null — story not generated yet, not an error
     return data
 
 

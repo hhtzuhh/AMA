@@ -14,7 +14,15 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
+  const [mockMode, setMockMode] = useState<boolean | null>(null)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    fetch(`${API}/api/health`)
+      .then(r => r.json())
+      .then(data => setMockMode(data.mock_mode))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     fetch(`${API}/api/projects`)
@@ -44,7 +52,19 @@ export default function ProjectsPage() {
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col items-center py-16 px-4">
       <h1 className="text-3xl font-bold mb-2">AMA</h1>
-      <p className="text-gray-400 mb-10 text-sm">AI-powered interactive projection theater</p>
+      <p className="text-gray-400 mb-4 text-sm">AI-powered interactive projection theater</p>
+
+      {/* Backend mode badge */}
+      {mockMode !== null && (
+        <div className={`mb-8 px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 ${
+          mockMode
+            ? 'bg-yellow-900/50 border border-yellow-700 text-yellow-300'
+            : 'bg-green-900/50 border border-green-700 text-green-300'
+        }`}>
+          <span className={`w-2 h-2 rounded-full ${mockMode ? 'bg-yellow-400' : 'bg-green-400'}`} />
+          {mockMode ? 'Mock Mode — no real AI calls' : 'Live Mode — real AI generation'}
+        </div>
+      )}
 
       {/* New project */}
       <div
