@@ -1,9 +1,12 @@
 interface Props {
   pageNum: number
   totalPages: number
+  charName: string
   spriteState: string
   isNarrating: boolean
   hasNarration: boolean
+  canGoPrev: boolean
+  canGoNext: boolean
   onPrev: () => void
   onNext: () => void
   onReplay: () => void
@@ -12,9 +15,12 @@ interface Props {
 export default function TheaterControls({
   pageNum,
   totalPages,
+  charName,
   spriteState,
   isNarrating,
   hasNarration,
+  canGoPrev,
+  canGoNext,
   onPrev,
   onNext,
   onReplay,
@@ -33,13 +39,13 @@ export default function TheaterControls({
       </span>
 
       <span className="text-gray-400 text-xs font-mono">
-        Page {pageNum} · Max: {spriteState}
+        Page {pageNum} / {totalPages}
+        {charName && ` · ${charName}: ${spriteState}`}
       </span>
 
       <div className="ml-auto flex items-center gap-2">
-        <NavButton onClick={onPrev} disabled={totalPages <= 1}>◀</NavButton>
-        <span className="text-xs text-gray-400 font-mono">{pageNum}</span>
-        <NavButton onClick={onNext} disabled={totalPages <= 1}>▶</NavButton>
+        <NavButton onClick={onPrev} disabled={!canGoPrev}>◀</NavButton>
+        <NavButton onClick={onNext} disabled={!canGoNext}>▶</NavButton>
         {hasNarration && (
           <button
             onClick={onReplay}
