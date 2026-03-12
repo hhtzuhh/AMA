@@ -291,13 +291,38 @@ def update_page(project_id: str, system_page: int, fields: dict) -> None:
     protected = {"page", "actual_page"}
     path = project_dir(project_id) / "story_data.json"
     data = json.loads(path.read_text())
+    actual_page = system_page
     for p in data["pages"]:
         if p["page"] == system_page:
+            actual_page = p.get("actual_page") or system_page
             for k, v in fields.items():
                 if k not in protected:
                     p[k] = v
             break
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+    # Sync assigned bg/nar URLs into meta.json so manifest and node indicators stay in sync
+    if "bg_url" in fields and fields["bg_url"]:
+        _record_assigned_asset(project_id, actual_page, "background", fields["bg_url"])
+    if "nar_url" in fields and fields["nar_url"]:
+        _record_assigned_asset(project_id, actual_page, "narration", fields["nar_url"])
+
+
+def _record_assigned_asset(project_id: str, page_num: int, kind: str, url: str) -> None:
+    """Add a manually-assigned asset URL to meta.json versions if not already present."""
+    pdir = project_dir(project_id)
+    meta = _read_meta(pdir)
+    pages = meta.setdefault("pages", {})
+    page = pages.setdefault(str(page_num), {"enabled": True})
+    entry = page.setdefault(kind, {"versions": []})
+    existing_urls = {v["url"] for v in entry.get("versions", [])}
+    if url not in existing_urls:
+        entry["versions"].append({
+            "url": url,
+            "created_at": datetime.utcnow().isoformat(),
+            "generation_inputs": {"source": "assigned"},
+        })
+    _write_meta(pdir, meta)
 
 
 def set_page_ref(project_id: str, system_page: int, ref_page: int | None = None, ref_image: str | None = None) -> None:

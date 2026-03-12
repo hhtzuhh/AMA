@@ -1,25 +1,43 @@
 import { useEffect, useRef, useState } from 'react'
-import { loadStoryData, getPageSpriteState } from '../data/storyData'
-import { getSpriteUrl, getSceneUrl, getNarrationUrl, SCENE_PAGES, hasNarration } from '../data/assetManifest'
-import type { StoryData } from '../types'
+import { useParams } from 'react-router-dom'
+import type { StoryData, StoryEdge } from '../types'
 import BackgroundLayer from '../components/theater/BackgroundLayer'
 import SpriteLayer from '../components/theater/SpriteLayer'
 import NarrationPlayer from '../components/theater/NarrationPlayer'
 import TheaterControls from '../components/theater/TheaterControls'
 
-const SPRITE_CHARACTER = 'max'
+const API = 'http://localhost:8000'
+
+function assetUrl(projectId: string, path: string): string {
+  return `${API}/api/projects/${projectId}/assets/${path}`
+}
 
 export default function TheaterPage() {
+  const { projectId } = useParams<{ projectId: string }>()
   const [storyData, setStoryData] = useState<StoryData | null>(null)
-  const [pageIdx, setPageIdx] = useState(0)
+  const [manifest, setManifest] = useState<any>(null)
+  const [edges, setEdges] = useState<StoryEdge[]>([])
+  const [currentPageNum, setCurrentPageNum] = useState<number | null>(null)
   const [isNarrating, setIsNarrating] = useState(false)
   const [replayCount, setReplayCount] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const [dims, setDims] = useState({ width: window.innerWidth, height: window.innerHeight })
 
   useEffect(() => {
-    loadStoryData().then(setStoryData)
-  }, [])
+    if (!projectId) return
+    Promise.all([
+      fetch(`${API}/api/projects/${projectId}/story`).then(r => r.ok ? r.json() : null),
+      fetch(`${API}/api/projects/${projectId}/manifest`).then(r => r.ok ? r.json() : null),
+      fetch(`${API}/api/projects/${projectId}/edges`).then(r => r.ok ? r.json() : { edges: [] }),
+    ]).then(([story, mani, edgeData]) => {
+      setStoryData(story)
+      setManifest(mani)
+      setEdges(edgeData?.edges ?? [])
+      if (story?.pages?.length > 0) {
+        setCurrentPageNum(story.pages[0].page)
+      }
+    })
+  }, [projectId])
 
   useEffect(() => {
     function handleResize() {
@@ -29,7 +47,7 @@ export default function TheaterPage() {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  if (!storyData) {
+  if (!storyData || currentPageNum === null) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-950 text-white">
         Loading...
@@ -37,13 +55,56 @@ export default function TheaterPage() {
     )
   }
 
-  const pageNum = SCENE_PAGES[pageIdx]
-  const spriteState = getPageSpriteState(storyData.pages, pageNum, SPRITE_CHARACTER)
-  const spriteUrl = getSpriteUrl(SPRITE_CHARACTER, spriteState)
-  const sceneUrl = getSceneUrl(pageNum)
-  const narrationUrl = hasNarration(pageNum) ? getNarrationUrl(pageNum) : ''
+  const currentPage = storyData.pages.find(p => p.page === currentPageNum)!
 
-  // Use 16:9 aspect ratio contained within the viewport
+  // Resolve background URL — story_data.bg_url is the active selection,
+  // fall back to manifest's latest version if not set
+  const pageManifest = manifest?.pages?.[String(currentPageNum)]
+  const bgEntry = pageManifest?.background
+  const bgPath = currentPage.bg_url
+    ?? (bgEntry?.versions?.length > 0 ? bgEntry.versions[bgEntry.current ?? 0]?.url : null)
+  const bgUrl = bgPath ? assetUrl(projectId!, bgPath) : ''
+
+  // Resolve narration URL — same priority: story_data.nar_url first, then manifest latest
+  const narEntry = pageManifest?.narration
+  const narPath = currentPage.nar_url
+    ?? (narEntry?.versions?.length > 0 ? narEntry.versions[narEntry.versions.length - 1]?.url : null)
+  const narUrl = narPath ? assetUrl(projectId!, narPath) : ''
+
+  // Resolve sprite: use first foreground character, fallback to first character_state
+  const fgCharName = currentPage.foreground_characters?.[0]
+  const csEntry = fgCharName
+    ? currentPage.character_states?.find(c => c.character.toLowerCase() === fgCharName.toLowerCase())
+    : currentPage.character_states?.[0]
+
+  let spriteUrl = ''
+  let spriteState = csEntry?.state ?? 'idle'
+  const charName = csEntry?.character ?? fgCharName ?? ''
+
+  if (csEntry?.sprite_url) {
+    // Page-specific sprite override
+    spriteUrl = assetUrl(projectId!, csEntry.sprite_url)
+  } else if (charName) {
+    const slug = charName.toLowerCase().replace(/\s+/g, '_')
+    const charManifest = manifest?.characters?.[slug]
+    const stateEntry = charManifest?.sprites?.[spriteState]
+    const versionUrl = stateEntry?.versions?.length > 0
+      ? stateEntry.versions[stateEntry.current ?? 0]?.url
+      : null
+    if (versionUrl) spriteUrl = assetUrl(projectId!, versionUrl)
+  }
+
+  // Edge navigation
+  const nextEdges = edges.filter(e => e.from === currentPageNum)
+  const prevEdges = edges.filter(e => e.to === currentPageNum)
+
+  const goToPage = (pageNum: number) => {
+    setIsNarrating(false)
+    setReplayCount(0)
+    setCurrentPageNum(pageNum)
+  }
+
+  // Canvas sizing — 16:9 contained within viewport
   const aspect = 16 / 9
   let canvasW = dims.width
   let canvasH = dims.width / aspect
@@ -60,41 +121,44 @@ export default function TheaterPage() {
         style={{ width: canvasW, height: canvasH }}
       >
         {/* z-index 0: background video */}
-        <BackgroundLayer src={sceneUrl} />
+        <BackgroundLayer src={bgUrl} />
 
         {/* z-index 1: PixiJS sprite animation */}
-        <SpriteLayer
-          spriteUrl={spriteUrl}
-          state={spriteState}
-          width={canvasW}
-          height={canvasH}
-        />
+        {spriteUrl && (
+          <SpriteLayer
+            spriteUrl={spriteUrl}
+            state={spriteState}
+            width={canvasW}
+            height={canvasH}
+          />
+        )}
 
         {/* Hidden audio element */}
-        {narrationUrl && (
+        {narUrl && (
           <NarrationPlayer
-            src={narrationUrl}
+            src={narUrl}
             triggerReplay={replayCount}
             onPlay={() => setIsNarrating(true)}
-            onEnd={() => setIsNarrating(false)}
+            onEnd={() => {
+              setIsNarrating(false)
+              // Auto-advance after narration if exactly one outgoing edge
+              if (nextEdges.length === 1) goToPage(nextEdges[0].to)
+            }}
           />
         )}
 
         {/* z-index 10: HUD controls */}
         <TheaterControls
-          pageNum={pageNum}
-          totalPages={SCENE_PAGES.length}
+          pageNum={currentPageNum}
+          totalPages={storyData.pages.length}
+          charName={charName}
           spriteState={spriteState}
           isNarrating={isNarrating}
-          hasNarration={!!narrationUrl}
-          onPrev={() => {
-            setIsNarrating(false)
-            setPageIdx(i => (i - 1 + SCENE_PAGES.length) % SCENE_PAGES.length)
-          }}
-          onNext={() => {
-            setIsNarrating(false)
-            setPageIdx(i => (i + 1) % SCENE_PAGES.length)
-          }}
+          hasNarration={!!narUrl}
+          canGoPrev={prevEdges.length > 0}
+          canGoNext={nextEdges.length > 0}
+          onPrev={() => prevEdges.length > 0 && goToPage(prevEdges[0].from)}
+          onNext={() => nextEdges.length > 0 && goToPage(nextEdges[0].to)}
           onReplay={() => setReplayCount(c => c + 1)}
         />
       </div>
