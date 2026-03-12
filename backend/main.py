@@ -22,6 +22,7 @@ class _PollFilter(logging.Filter):
         return True
 
 logging.getLogger("uvicorn.access").addFilter(_PollFilter())
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 app = FastAPI(title="AMA API")
 

@@ -196,8 +196,8 @@ export default function PipelinePage() {
         const nars = new Set<number>()
         Object.entries(m.pages ?? {}).forEach(([pageNum, page]: [string, any]) => {
           const n = Number(pageNum)
-          if (page.background?.current >= 0 && page.background?.versions?.length) bgs.add(n)
-          if (page.narration?.current >= 0 && page.narration?.versions?.length) nars.add(n)
+          if (page.background?.versions?.length > 0) bgs.add(n)
+          if (page.narration?.versions?.length > 0) nars.add(n)
         })
         setCompletedSprites(sprites)
         setDoneBackgrounds(bgs)

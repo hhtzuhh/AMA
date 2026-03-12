@@ -48,13 +48,28 @@ export default function NodePanel({ selected, onClose, manifest, completedSprite
     return manifest?.pages?.[String(pageNum)]?.narration ?? null
   }
 
-  async function setCurrent(body: object) {
+  function getAllNarrationVersions(): Array<{ pageNum: number; version: any }> {
+    const result: Array<{ pageNum: number; version: any }> = []
+    for (const [pageNum, page] of Object.entries(manifest?.pages ?? {})) {
+      const entry = (page as any)?.narration
+      if (entry?.versions?.length) {
+        for (const v of entry.versions) result.push({ pageNum: Number(pageNum), version: v })
+      }
+    }
+    return result
+  }
+
+  async function setCurrent(body: Record<string, any>) {
     await fetch(`${API}/api/projects/${projectId}/manifest/set-current`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
     onManifestChange()
+    // bg/nar active URL lives in story_data.json (page.bg_url / page.nar_url), so reload page data too
+    if (body.type === 'background' || body.type === 'narration') {
+      onPageUpdated()
+    }
   }
 
   if (!selected) {
@@ -88,6 +103,7 @@ export default function NodePanel({ selected, onClose, manifest, completedSprite
           onPageDeleted={onPageDeleted}
           onPageUpdated={onPageUpdated}
           onManifestChange={onManifestChange}
+          allNarrationVersions={getAllNarrationVersions()}
         />
       )}
     </div>
@@ -106,25 +122,28 @@ function StagePanel({ info }: { info: StageInfo }) {
   )
 }
 
-function VersionPicker({ entry, onSelect }: { entry: any; onSelect: (v: number) => void }) {
+function VersionPicker({ entry, activeUrl, onSelect }: { entry: any; activeUrl: string | null | undefined; onSelect: (v: number) => void }) {
   if (!entry || !entry.versions?.length) return null
   const count = entry.versions.length
   if (count <= 1) return <span style={{ fontSize: 10, color: '#4b5563' }}>v1</span>
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
-      {entry.versions.map((_: any, i: number) => (
-        <button
-          key={i}
-          onClick={() => onSelect(i)}
-          style={{
-            fontSize: 10, padding: '1px 6px', borderRadius: 4, cursor: 'pointer', border: 'none',
-            background: entry.current === i ? '#4338ca' : '#1f2937',
-            color: entry.current === i ? 'white' : '#6b7280',
-          }}
-        >
-          v{i + 1}
-        </button>
-      ))}
+      {entry.versions.map((v: any, i: number) => {
+        const isActive = activeUrl ? v.url === activeUrl : i === count - 1
+        return (
+          <button
+            key={i}
+            onClick={() => onSelect(i)}
+            style={{
+              fontSize: 10, padding: '1px 6px', borderRadius: 4, cursor: 'pointer', border: 'none',
+              background: isActive ? '#4338ca' : '#1f2937',
+              color: isActive ? 'white' : '#6b7280',
+            }}
+          >
+            v{i + 1}
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -166,7 +185,7 @@ function buildBgPrompt(page: Page, draft: Record<string, string>): string {
   return prompt
 }
 
-function PagePanel({ page, projectId, characters, completedSprites, doneBackgrounds, doneNarrations, getSpriteEntry, getBackgroundEntry, getNarrationEntry, assetUrl, setCurrent, onPageDeleted, onPageUpdated, onManifestChange }: {
+function PagePanel({ page, projectId, characters, completedSprites, doneBackgrounds, doneNarrations, getSpriteEntry, getBackgroundEntry, getNarrationEntry, assetUrl, setCurrent, onPageDeleted, onPageUpdated, onManifestChange, allNarrationVersions }: {
   page: Page
   projectId: string
   characters: Character[]
@@ -181,13 +200,19 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
   onPageDeleted: (pageNum: number) => void
   onPageUpdated: () => void
   onManifestChange: () => void
+  allNarrationVersions: Array<{ pageNum: number; version: any }>
 }) {
   const [headerDraft, setHeaderDraft] = useState<Record<string, string>>({})
-  const [headerSaving, setHeaderSaving] = useState(false)
   const [narDraft, setNarDraft] = useState<string | null>(null)
-  const [narSaving, setNarSaving] = useState(false)
+  const [narMoodDraft, setNarMoodDraft] = useState<string | null>(null)
   const [bgDraft, setBgDraft] = useState<string | null>(null)
-  const [bgSaving, setBgSaving] = useState(false)
+  const [showBgCreate, setShowBgCreate] = useState(false)
+  const [bgCreateMode, setBgCreateMode] = useState<'new' | 'pick'>('new')
+  const [showNarCreate, setShowNarCreate] = useState(false)
+  const [narCreateMode, setNarCreateMode] = useState<'new' | 'pick'>('new')
+  const [showNarPicker, setShowNarPicker] = useState(false)
+  const [bgCreateError, setBgCreateError] = useState('')
+  const [narCreateError, setNarCreateError] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [refPageInput, setRefPageInput] = useState<string>('')
   const [settingRef, setSettingRef] = useState(false)
@@ -205,6 +230,7 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
   type LibraryTarget =
     | { type: 'charRef'; slug: string; charName: string }
     | { type: 'bgRef'; pageNum: number }
+    | { type: 'bgPick' }
     | { type: 'addCharRef' }
     | null
   const [libraryTarget, setLibraryTarget] = useState<LibraryTarget>(null)
@@ -226,7 +252,7 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
   const [bgExpanded, setBgExpanded] = useState(true)
   const [narExpanded, setNarExpanded] = useState(true)
 
-  function startItemJob(jobId: string, key: string, onDone: (status?: string) => void) {
+  function startItemJob(jobId: string, key: string, onDone: (status: string, error?: string) => void) {
     const interval = setInterval(async () => {
       try {
         const res = await fetch(`${API}/api/projects/${projectId}/pipeline/jobs/${jobId}`)
@@ -240,7 +266,7 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
             next.delete(key)
             return next
           })
-          onDone(data.status)
+          onDone(data.status, data.error ?? undefined)
           onManifestChange()
         }
       } catch {
@@ -251,22 +277,82 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
     setRunningItems(prev => new Set(prev).add(key))
   }
 
+  function jobErrorMsg(error?: string): string {
+    if (!error) return 'Generation failed'
+    // Extract the last meaningful line (exception type + message, not full traceback)
+    const lines = error.split('\n').map(l => l.trim()).filter(Boolean)
+    const last = lines[lines.length - 1] ?? error
+    return last.length > 120 ? last.slice(0, 120) + '…' : last
+  }
+
   async function regenerateBackground() {
     const key = 'bg'
     if (runningItems.has(key)) return
+    setBgCreateError('')
+    // Save any drafted fields before generating
+    const fields: Record<string, any> = {}
+    for (const [k, v] of Object.entries(headerDraft)) {
+      if (k === 'foreground_characters' || k === 'background_characters') {
+        fields[k] = v.split(',').map((s: string) => s.trim()).filter(Boolean)
+      } else {
+        fields[k] = v
+      }
+    }
+    if (bgDraft !== null) fields.scene_motion = bgDraft
+    if (Object.keys(fields).length > 0) {
+      await fetch(`${API}/api/projects/${projectId}/pages/${page.page}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields }),
+      })
+      setHeaderDraft({})
+      setBgDraft(null)
+      onPageUpdated()
+    }
     const res = await fetch(`${API}/api/projects/${projectId}/pipeline/background/${actualPage}`, { method: 'POST' })
-    if (!res.ok) return
+    if (!res.ok) { setBgCreateError('Failed to start generation'); return }
     const { job_id } = await res.json()
-    startItemJob(job_id, key, () => {})
+    startItemJob(job_id, key, (status, error) => {
+      if (status === 'failed') {
+        setBgCreateError(jobErrorMsg(error))
+      } else {
+        setShowBgCreate(false)
+        setBgCreateError('')
+        onPageUpdated()
+      }
+    })
   }
 
   async function regenerateNarration() {
     const key = 'nar'
     if (runningItems.has(key)) return
+    setNarCreateError('')
+    // Save text + mood before generating
+    const fields: Record<string, any> = {}
+    if (narDraft !== null) fields.text = narDraft
+    if (narMoodDraft !== null) fields.mood = narMoodDraft
+    if (Object.keys(fields).length > 0) {
+      await fetch(`${API}/api/projects/${projectId}/pages/${page.page}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields }),
+      })
+      setNarDraft(null)
+      setNarMoodDraft(null)
+      onPageUpdated()
+    }
     const res = await fetch(`${API}/api/projects/${projectId}/pipeline/narration/${actualPage}`, { method: 'POST' })
-    if (!res.ok) return
+    if (!res.ok) { setNarCreateError('Failed to start generation'); return }
     const { job_id } = await res.json()
-    startItemJob(job_id, key, () => {})
+    startItemJob(job_id, key, (status, error) => {
+      if (status === 'failed') {
+        setNarCreateError(jobErrorMsg(error))
+      } else {
+        setShowNarCreate(false)
+        setNarCreateError('')
+        onPageUpdated()
+      }
+    })
   }
 
   async function regenerateSprite(slug: string, state: string) {
@@ -278,19 +364,18 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
     startItemJob(job_id, key, () => {})
   }
 
-  function entryUrl(entry: any): string | null {
-    if (!entry || entry.current < 0 || !entry.versions?.length) return null
-    return assetUrl(entry.versions[entry.current].url)
-  }
-
   const actualPage = page.actual_page ?? page.page
   const bgEntry = getBackgroundEntry(actualPage)
   const narEntry = getNarrationEntry(actualPage)
 
-  // ── Page Header helpers ──────────────────────────────────────────────────
-  const hasHeaderDraft = Object.keys(headerDraft).length > 0
+  // Active URL comes from page (source of truth); fall back to latest version for display
+  const bgActiveUrl = page.bg_url ?? bgEntry?.versions?.[bgEntry.versions.length - 1]?.url ?? null
+  const narActiveUrl = page.nar_url ?? narEntry?.versions?.[narEntry.versions.length - 1]?.url ?? null
+  const bgGenInputs = bgEntry?.versions?.find((v: any) => v.url === bgActiveUrl)?.generation_inputs ?? null
+  const narGenInputs = narEntry?.versions?.find((v: any) => v.url === narActiveUrl)?.generation_inputs ?? null
 
-  function headerFieldValue(key: string): string {
+  // ── Page Header helpers ──────────────────────────────────────────────────
+function headerFieldValue(key: string): string {
     if (key in headerDraft) return headerDraft[key]
     if (key === 'foreground_characters') return page.foreground_characters?.join(', ') ?? ''
     if (key === 'background_characters') return page.background_characters?.join(', ') ?? ''
@@ -301,67 +386,7 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
     setHeaderDraft(prev => ({ ...prev, [key]: value }))
   }
 
-  function discardHeader() {
-    setHeaderDraft({})
-  }
 
-  async function saveHeader() {
-    setHeaderSaving(true)
-    try {
-      // Convert comma-separated strings back to arrays for array fields
-      const fields: Record<string, any> = {}
-      for (const [k, v] of Object.entries(headerDraft)) {
-        if (k === 'foreground_characters' || k === 'background_characters') {
-          fields[k] = v.split(',').map(s => s.trim()).filter(Boolean)
-        } else {
-          fields[k] = v
-        }
-      }
-      await fetch(`${API}/api/projects/${projectId}/pages/${page.page}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields }),
-      })
-      setHeaderDraft({})
-      onPageUpdated()
-    } finally {
-      setHeaderSaving(false)
-    }
-  }
-
-  // ── Narration text save ──────────────────────────────────────────────────
-  async function saveNarration() {
-    if (narDraft === null) return
-    setNarSaving(true)
-    try {
-      await fetch(`${API}/api/projects/${projectId}/pages/${page.page}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: { text: narDraft } }),
-      })
-      setNarDraft(null)
-      onPageUpdated()
-    } finally {
-      setNarSaving(false)
-    }
-  }
-
-  // ── Background scene_motion save ─────────────────────────────────────────
-  async function saveBgMotion() {
-    if (bgDraft === null) return
-    setBgSaving(true)
-    try {
-      await fetch(`${API}/api/projects/${projectId}/pages/${page.page}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: { scene_motion: bgDraft } }),
-      })
-      setBgDraft(null)
-      onPageUpdated()
-    } finally {
-      setBgSaving(false)
-    }
-  }
 
   // ── Ref image ────────────────────────────────────────────────────────────
   async function setRefByPage() {
@@ -522,9 +547,9 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
       }
       const { job_id } = await res.json()
       // Keep form open — spinner via runningItems; close on completion
-      startItemJob(job_id, key, (status) => {
+      startItemJob(job_id, key, (status, error) => {
         if (status === 'failed') {
-          setAddCharError('Generation failed')
+          setAddCharError(jobErrorMsg(error))
         } else {
           resetAddForm()
         }
@@ -577,9 +602,9 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
         return
       }
       const { job_id } = await genRes.json()
-      startItemJob(job_id, key, (status) => {
+      startItemJob(job_id, key, (status, error) => {
         if (status === 'failed') {
-          setAddCharError('Generation failed')
+          setAddCharError(jobErrorMsg(error))
         } else {
           resetAddForm()
         }
@@ -944,152 +969,192 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
       <SectionHeader title="Background" expanded={bgExpanded} onToggle={() => setBgExpanded(e => !e)} />
       {bgExpanded && (
         <div style={{ marginBottom: 16 }}>
-          {/* Scene inputs: mood, setting, fg/bg chars, scene_motion */}
-          {(
-            [
-              { key: 'mood', label: 'Mood', source: 'header' },
-              { key: 'setting', label: 'Setting', source: 'header' },
-              { key: 'foreground_characters', label: 'Foreground Characters', source: 'header' },
-              { key: 'background_characters', label: 'Background Characters', source: 'header' },
-              { key: 'scene_motion', label: 'Scene Motion', source: 'bg' },
-            ] as Array<{ key: string; label: string; source: 'header' | 'bg' }>
-          ).map(({ key, label, source }) => {
-            const isDirty = source === 'header' ? key in headerDraft : bgDraft !== null
-            const value = source === 'header'
-              ? headerFieldValue(key)
-              : (bgDraft !== null ? bgDraft : (page.scene_motion ?? ''))
-            const onChange = source === 'header'
-              ? (v: string) => handleHeaderChange(key, v)
-              : (v: string) => setBgDraft(v)
-            return (
-              <div key={key} style={{ marginBottom: 6 }}>
-                <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>{label}</div>
-                <input
-                  type="text"
-                  value={value}
-                  onChange={e => onChange(e.target.value)}
-                  style={{
-                    width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4,
-                    color: '#d1d5db', fontSize: 11, padding: '4px 6px', boxSizing: 'border-box',
-                    outline: isDirty ? '1px solid #f59e0b' : 'none',
-                  }}
-                />
-              </div>
-            )
-          })}
-          {(hasHeaderDraft || bgDraft !== null) && (
-            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-              <button
-                onClick={async () => { await saveHeader(); await saveBgMotion() }}
-                disabled={headerSaving || bgSaving}
-                style={{ flex: 1, background: '#4338ca', color: 'white', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 10, cursor: 'pointer', opacity: (headerSaving || bgSaving) ? 0.7 : 1 }}
-              >
-                {(headerSaving || bgSaving) ? 'Saving...' : 'Save'}
-              </button>
-              <button
-                onClick={() => { discardHeader(); setBgDraft(null) }}
-                style={{ flex: 1, background: '#374151', color: '#d1d5db', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 10, cursor: 'pointer' }}
-              >
-                Discard
-              </button>
-            </div>
-          )}
-
-          {/* Prompt preview */}
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Prompt Preview</div>
-            <textarea
-              readOnly
-              rows={4}
-              value={buildBgPrompt(page, bgPromptDraft)}
-              style={{
-                width: '100%', background: '#0f172a', border: '1px solid #374151', borderRadius: 4,
-                color: '#6b7280', fontSize: 10, padding: '4px 6px', resize: 'vertical', boxSizing: 'border-box',
-              }}
-            />
-          </div>
-
-          {/* Reference section */}
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Reference Image</div>
-            <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 6 }}>
-              {page.ref_source === 'custom'
-                ? 'Custom image'
-                : `PDF page ${page.ref_page ?? page.actual_page ?? page.page}`
-              }
-            </div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
-              <input
-                type="number"
-                min={1}
-                value={refPageInput}
-                onChange={e => setRefPageInput(e.target.value)}
-                placeholder="PDF page #"
-                style={{
-                  flex: 1, background: '#1f2937', border: '1px solid #374151', borderRadius: 4,
-                  color: '#d1d5db', fontSize: 11, padding: '4px 6px', boxSizing: 'border-box',
-                }}
-              />
-              <button
-                onClick={setRefByPage}
-                disabled={settingRef || !refPageInput}
-                style={{ background: '#374151', color: '#d1d5db', border: 'none', borderRadius: 4, padding: '4px 8px', fontSize: 11, cursor: settingRef ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}
-              >
-                Set
-              </button>
-            </div>
-            <div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={e => { if (e.target.files?.[0]) uploadRefImage(e.target.files[0]) }}
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={settingRef}
-                style={{ width: '100%', background: '#1f2937', color: '#9ca3af', border: '1px solid #374151', borderRadius: 4, padding: '5px 0', fontSize: 11, cursor: settingRef ? 'not-allowed' : 'pointer' }}
-              >
-                Upload Custom Ref Image
-              </button>
-              <button
-                onClick={() => setLibraryTarget({ type: 'bgRef', pageNum: actualPage })}
-                style={{ width: '100%', background: '#1f2937', color: '#9ca3af', border: '1px solid #374151', borderRadius: 4, padding: '5px 0', fontSize: 11, cursor: 'pointer', marginTop: 4 }}
-              >
-                📚 From Library
-              </button>
-            </div>
-          </div>
-
-          {/* Background video player */}
-          <div>
+          {/* Display: video player + version picker + selected version's generation_inputs */}
+          <div style={{ marginBottom: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1 }}>Video</span>
-                <button
-                  onClick={regenerateBackground}
-                  disabled={runningItems.has('bg')}
-                  style={{
-                    background: runningItems.has('bg') ? '#92400e' : '#374151',
-                    color: runningItems.has('bg') ? '#fde68a' : '#d1d5db',
-                    border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: 10,
-                    cursor: runningItems.has('bg') ? 'not-allowed' : 'pointer', lineHeight: 1.4,
-                  }}
-                >
-                  {runningItems.has('bg') ? '...' : '↻'}
-                </button>
-              </div>
+              <span style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1 }}>Video</span>
               <VersionPicker
                 entry={bgEntry}
+                activeUrl={bgActiveUrl}
                 onSelect={v => setCurrent({ type: 'background', page: actualPage, version: v })}
               />
             </div>
-            {doneBackgrounds.has(page.page) && entryUrl(bgEntry)
-              ? <video key={entryUrl(bgEntry)!} src={entryUrl(bgEntry)!} style={{ width: '100%', borderRadius: 4, background: 'black' }} controls muted preload="metadata" />
+            {bgActiveUrl
+              ? <video key={bgActiveUrl} src={assetUrl(bgActiveUrl)} style={{ width: '100%', borderRadius: 4, background: 'black' }} controls muted preload="metadata" />
               : <Pending />
             }
+            {bgGenInputs && (
+              <div style={{ background: '#0f172a', borderRadius: 4, padding: '6px 8px', marginTop: 6 }}>
+                <div style={{ fontSize: 9, color: '#4b5563', marginBottom: 3, textTransform: 'uppercase', letterSpacing: 1 }}>
+                  v{(bgEntry?.versions?.findIndex((v: any) => v.url === bgActiveUrl) ?? 0) + 1} generation inputs
+                </div>
+                {bgGenInputs.prompt && (
+                  <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 4, lineHeight: 1.4 }}>
+                    <span style={{ color: '#4b5563' }}>Prompt: </span>{bgGenInputs.prompt}
+                  </div>
+                )}
+                {bgGenInputs.ref_image && (
+                  <div>
+                    <span style={{ fontSize: 10, color: '#4b5563' }}>Ref: </span>
+                    <img src={assetUrl(bgGenInputs.ref_image)} alt="ref"
+                      style={{ height: 36, objectFit: 'contain', marginTop: 2, display: 'block', borderRadius: 2 }}
+                      onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+
+          {/* Create / Pick accordion */}
+          <button
+            onClick={() => setShowBgCreate(e => !e)}
+            style={{
+              width: '100%', background: showBgCreate ? '#0e1e2a' : 'transparent',
+              border: '1px solid #164e63', borderRadius: 4,
+              padding: '5px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+              marginBottom: showBgCreate ? 8 : 0, color: '#67e8f9', fontSize: 10,
+            }}
+          >
+            <span>{showBgCreate ? '▼' : '▶'}</span>
+            <span style={{ textTransform: 'uppercase', letterSpacing: 1, fontWeight: 'bold' }}>Add Background</span>
+          </button>
+          {showBgCreate && (
+            <div style={{ paddingTop: 4 }}>
+              {/* Mode toggle */}
+              <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+                {(['pick', 'new'] as const).map(mode => (
+                  <button key={mode} onClick={() => { setBgCreateMode(mode); setBgCreateError('') }}
+                    style={{ flex: 1, background: bgCreateMode === mode ? '#164e63' : '#1f2937', color: bgCreateMode === mode ? '#67e8f9' : '#6b7280', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 10, cursor: 'pointer' }}>
+                    {mode === 'pick' ? 'Pick Existing' : 'Generate New'}
+                  </button>
+                ))}
+              </div>
+
+              {bgCreateMode === 'pick' && (
+                <div>
+                  <button
+                    onClick={() => setLibraryTarget({ type: 'bgPick' })}
+                    style={{ width: '100%', background: '#1f2937', border: '1px dashed #164e63', color: '#67e8f9', borderRadius: 4, padding: '8px 0', fontSize: 11, cursor: 'pointer' }}
+                  >
+                    📂 Browse Scene Videos
+                  </button>
+                  {bgCreateError && <div style={{ fontSize: 10, color: '#f87171', marginTop: 6 }}>{bgCreateError}</div>}
+                </div>
+              )}
+
+              {bgCreateMode === 'new' && (<>
+              {/* Editable fields */}
+              {(
+                [
+                  { key: 'setting', label: 'Setting', source: 'header' },
+                  { key: 'foreground_characters', label: 'Foreground Characters', source: 'header' },
+                  { key: 'background_characters', label: 'Background Characters', source: 'header' },
+                  { key: 'scene_motion', label: 'Scene Motion', source: 'bg' },
+                ] as Array<{ key: string; label: string; source: 'header' | 'bg' }>
+              ).map(({ key, label, source }) => {
+                const isDirty = source === 'header' ? key in headerDraft : bgDraft !== null
+                const value = source === 'header'
+                  ? headerFieldValue(key)
+                  : (bgDraft !== null ? bgDraft : (page.scene_motion ?? ''))
+                const onChange = source === 'header'
+                  ? (v: string) => handleHeaderChange(key, v)
+                  : (v: string) => setBgDraft(v)
+                return (
+                  <div key={key} style={{ marginBottom: 6 }}>
+                    <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>{label}</div>
+                    <input
+                      type="text"
+                      value={value}
+                      onChange={e => onChange(e.target.value)}
+                      style={{
+                        width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4,
+                        color: '#d1d5db', fontSize: 11, padding: '4px 6px', boxSizing: 'border-box',
+                        outline: isDirty ? '1px solid #f59e0b' : 'none',
+                      }}
+                    />
+                  </div>
+                )
+              })}
+
+              {/* Prompt preview */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Prompt Preview</div>
+                <textarea
+                  readOnly
+                  rows={4}
+                  value={buildBgPrompt(page, bgPromptDraft)}
+                  style={{
+                    width: '100%', background: '#0f172a', border: '1px solid #374151', borderRadius: 4,
+                    color: '#6b7280', fontSize: 10, padding: '4px 6px', resize: 'vertical' as const, boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              {/* Reference image */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Reference Image</div>
+                <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 6 }}>
+                  {page.ref_source === 'custom'
+                    ? 'Custom image'
+                    : `PDF page ${page.ref_page ?? page.actual_page ?? page.page}`
+                  }
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+                  <input
+                    type="number"
+                    min={1}
+                    value={refPageInput}
+                    onChange={e => setRefPageInput(e.target.value)}
+                    placeholder="PDF page #"
+                    style={{ flex: 1, background: '#1f2937', border: '1px solid #374151', borderRadius: 4, color: '#d1d5db', fontSize: 11, padding: '4px 6px', boxSizing: 'border-box' }}
+                  />
+                  <button
+                    onClick={setRefByPage}
+                    disabled={settingRef || !refPageInput}
+                    style={{ background: '#374151', color: '#d1d5db', border: 'none', borderRadius: 4, padding: '4px 8px', fontSize: 11, cursor: settingRef ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' as const }}
+                  >
+                    Set
+                  </button>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={e => { if (e.target.files?.[0]) uploadRefImage(e.target.files[0]) }}
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={settingRef}
+                  style={{ width: '100%', background: '#1f2937', color: '#9ca3af', border: '1px solid #374151', borderRadius: 4, padding: '5px 0', fontSize: 11, cursor: settingRef ? 'not-allowed' : 'pointer' }}
+                >
+                  Upload Custom Ref Image
+                </button>
+                <button
+                  onClick={() => setLibraryTarget({ type: 'bgRef', pageNum: actualPage })}
+                  style={{ width: '100%', background: '#1f2937', color: '#9ca3af', border: '1px solid #374151', borderRadius: 4, padding: '5px 0', fontSize: 11, cursor: 'pointer', marginTop: 4 }}
+                >
+                  📚 From Library
+                </button>
+              </div>
+
+              {bgCreateError && <div style={{ fontSize: 10, color: '#f87171', marginBottom: 6 }}>{bgCreateError}</div>}
+              <button
+                onClick={regenerateBackground}
+                disabled={runningItems.has('bg')}
+                style={{
+                  width: '100%',
+                  background: runningItems.has('bg') ? '#92400e' : '#164e63',
+                  color: runningItems.has('bg') ? '#fde68a' : '#67e8f9',
+                  border: 'none', borderRadius: 4, padding: '6px 0', fontSize: 11,
+                  cursor: runningItems.has('bg') ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {runningItems.has('bg') ? '⟳ Generating...' : '⟳ Generate'}
+              </button>
+              </>)}
+            </div>
+          )}
         </div>
       )}
 
@@ -1101,67 +1166,147 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
       <SectionHeader title="Narration" expanded={narExpanded} onToggle={() => setNarExpanded(e => !e)} />
       {narExpanded && (
         <div style={{ marginBottom: 16 }}>
-          {/* Narration text editable */}
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Text</div>
-            <textarea
-              value={narDraft !== null ? narDraft : page.text}
-              onChange={e => setNarDraft(e.target.value)}
-              rows={4}
-              style={{
-                width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4,
-                color: '#d1d5db', fontSize: 11, padding: '4px 6px', resize: 'vertical', boxSizing: 'border-box',
-                outline: narDraft !== null ? '1px solid #f59e0b' : 'none',
-              }}
-            />
-            {narDraft !== null && (
-              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                <button
-                  onClick={saveNarration}
-                  disabled={narSaving}
-                  style={{ flex: 1, background: '#4338ca', color: 'white', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 10, cursor: narSaving ? 'not-allowed' : 'pointer', opacity: narSaving ? 0.7 : 1 }}
-                >
-                  {narSaving ? 'Saving...' : 'Save'}
-                </button>
-                <button
-                  onClick={() => setNarDraft(null)}
-                  disabled={narSaving}
-                  style={{ flex: 1, background: '#374151', color: '#d1d5db', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 10, cursor: 'pointer' }}
-                >
-                  Discard
-                </button>
+          {/* Display: audio player + version picker + selected version's generation_inputs */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1 }}>Audio</span>
+              <VersionPicker
+                entry={narEntry}
+                activeUrl={narActiveUrl}
+                onSelect={v => setCurrent({ type: 'narration', page: actualPage, version: v })}
+              />
+            </div>
+            {narActiveUrl
+              ? <audio key={narActiveUrl} src={assetUrl(narActiveUrl)} controls style={{ width: '100%' }} />
+              : <Pending />
+            }
+            {narGenInputs && (
+              <div style={{ background: '#0f172a', borderRadius: 4, padding: '6px 8px', marginTop: 6 }}>
+                <div style={{ fontSize: 9, color: '#4b5563', marginBottom: 3, textTransform: 'uppercase', letterSpacing: 1 }}>
+                  v{(narEntry?.versions?.findIndex((v: any) => v.url === narActiveUrl) ?? 0) + 1} generation inputs
+                </div>
+                {narGenInputs.text && (
+                  <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 4, lineHeight: 1.4 }}>
+                    <span style={{ color: '#4b5563' }}>Text: </span>{narGenInputs.text}
+                  </div>
+                )}
+                {narGenInputs.mood && (
+                  <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 2 }}>
+                    <span style={{ color: '#4b5563' }}>Mood: </span>{narGenInputs.mood}
+                  </div>
+                )}
+                {narGenInputs.voice && (
+                  <div style={{ fontSize: 10, color: '#6b7280' }}>
+                    <span style={{ color: '#4b5563' }}>Voice: </span>{narGenInputs.voice}
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          {/* Audio player */}
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1 }}>Audio</span>
-                <button
-                  onClick={regenerateNarration}
-                  disabled={runningItems.has('nar')}
-                  style={{
-                    background: runningItems.has('nar') ? '#92400e' : '#374151',
-                    color: runningItems.has('nar') ? '#fde68a' : '#d1d5db',
-                    border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: 10,
-                    cursor: runningItems.has('nar') ? 'not-allowed' : 'pointer', lineHeight: 1.4,
-                  }}
-                >
-                  {runningItems.has('nar') ? '...' : '↻'}
-                </button>
+          {/* Create / Pick accordion */}
+          <button
+            onClick={() => setShowNarCreate(e => !e)}
+            style={{
+              width: '100%', background: showNarCreate ? '#1c1a10' : 'transparent',
+              border: '1px solid #78350f', borderRadius: 4,
+              padding: '5px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+              marginBottom: showNarCreate ? 8 : 0, color: '#fcd34d', fontSize: 10,
+            }}
+          >
+            <span>{showNarCreate ? '▼' : '▶'}</span>
+            <span style={{ textTransform: 'uppercase', letterSpacing: 1, fontWeight: 'bold' }}>Add Narration</span>
+          </button>
+          {showNarCreate && (
+            <div style={{ paddingTop: 4 }}>
+              {/* Mode toggle */}
+              <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+                {(['pick', 'new'] as const).map(mode => (
+                  <button key={mode} onClick={() => { setNarCreateMode(mode); setNarCreateError('') }}
+                    style={{ flex: 1, background: narCreateMode === mode ? '#78350f' : '#1f2937', color: narCreateMode === mode ? '#fcd34d' : '#6b7280', border: 'none', borderRadius: 4, padding: '4px 0', fontSize: 10, cursor: 'pointer' }}>
+                    {mode === 'pick' ? 'Pick Existing' : 'Generate New'}
+                  </button>
+                ))}
               </div>
-              <VersionPicker
-                entry={narEntry}
-                onSelect={v => setCurrent({ type: 'narration', page: actualPage, version: v })}
-              />
+
+              {narCreateMode === 'pick' && (
+                <div>
+                  <button
+                    onClick={() => setShowNarPicker(true)}
+                    style={{ width: '100%', background: '#1f2937', border: '1px dashed #78350f', color: '#fcd34d', borderRadius: 4, padding: '8px 0', fontSize: 11, cursor: 'pointer' }}
+                  >
+                    🎙 Browse Voice Library
+                  </button>
+                  {narCreateError && <div style={{ fontSize: 10, color: '#f87171', marginTop: 6 }}>{narCreateError}</div>}
+                </div>
+              )}
+
+              {narCreateMode === 'new' && (<>
+              {/* Text */}
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Text</div>
+                <textarea
+                  value={narDraft !== null ? narDraft : page.text}
+                  onChange={e => setNarDraft(e.target.value)}
+                  rows={4}
+                  style={{
+                    width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4,
+                    color: '#d1d5db', fontSize: 11, padding: '4px 6px', resize: 'vertical' as const, boxSizing: 'border-box',
+                    outline: narDraft !== null ? '1px solid #f59e0b' : 'none',
+                  }}
+                />
+              </div>
+              {/* Mood */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Mood</div>
+                <input
+                  type="text"
+                  value={narMoodDraft !== null ? narMoodDraft : (page.mood ?? '')}
+                  onChange={e => setNarMoodDraft(e.target.value)}
+                  style={{
+                    width: '100%', background: '#1f2937', border: '1px solid #374151', borderRadius: 4,
+                    color: '#d1d5db', fontSize: 11, padding: '4px 6px', boxSizing: 'border-box',
+                    outline: narMoodDraft !== null ? '1px solid #f59e0b' : 'none',
+                  }}
+                />
+              </div>
+              {narCreateError && <div style={{ fontSize: 10, color: '#f87171', marginBottom: 6 }}>{narCreateError}</div>}
+              <button
+                onClick={regenerateNarration}
+                disabled={runningItems.has('nar')}
+                style={{
+                  width: '100%',
+                  background: runningItems.has('nar') ? '#92400e' : '#78350f',
+                  color: runningItems.has('nar') ? '#fde68a' : '#fcd34d',
+                  border: 'none', borderRadius: 4, padding: '6px 0', fontSize: 11,
+                  cursor: runningItems.has('nar') ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {runningItems.has('nar') ? '⟳ Generating...' : '⟳ Generate'}
+              </button>
+              </>)}
             </div>
-            {doneNarrations.has(page.page) && entryUrl(narEntry)
-              ? <audio key={entryUrl(narEntry)!} src={entryUrl(narEntry)!} controls style={{ width: '100%' }} />
-              : <Pending />
-            }
-          </div>
+          )}
+
+          {showNarPicker && (
+            <NarrationLibraryPicker
+              versions={allNarrationVersions}
+              assetUrl={assetUrl}
+              onSelect={async url => {
+                await fetch(`${API}/api/projects/${projectId}/pages/${page.page}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ fields: { nar_url: url } }),
+                })
+                setShowNarPicker(false)
+                setShowNarCreate(false)
+                setNarCreateError('')
+                onPageUpdated()
+                onManifestChange()
+              }}
+              onClose={() => setShowNarPicker(false)}
+            />
+          )}
         </div>
       )}
 
@@ -1185,15 +1330,29 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
         <AssetLibraryPicker
           projectId={projectId}
           title={
-            libraryTarget.type === 'charRef'
-              ? `Select Ref for ${libraryTarget.charName}`
-              : `Select Ref for Page ${actualPage}`
+            libraryTarget.type === 'charRef' ? `Select Ref for ${libraryTarget.charName}`
+            : libraryTarget.type === 'bgPick' ? `Pick Background for Page ${actualPage}`
+            : `Select Ref for Page ${actualPage}`
           }
-          defaultTab="library"
-          onSelect={url => {
+          defaultTab={libraryTarget.type === 'bgPick' ? 'scenes' : 'library'}
+          onSelect={async url => {
             if (libraryTarget.type === 'charRef') assignCharRef(libraryTarget.slug, url)
             else if (libraryTarget.type === 'bgRef') assignBgRef(libraryTarget.pageNum, url)
             else if (libraryTarget.type === 'addCharRef') setAddCharRefUrl(url)
+            else if (libraryTarget.type === 'bgPick') {
+              await fetch(`${API}/api/projects/${projectId}/pages/${page.page}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fields: { bg_url: url } }),
+              })
+              setShowBgCreate(false)
+              setBgCreateError('')
+              setLibraryTarget(null)
+              onPageUpdated()
+              onManifestChange()
+              return
+            }
+            setLibraryTarget(null)
           }}
           onClose={() => setLibraryTarget(null)}
         />
@@ -1204,6 +1363,91 @@ function PagePanel({ page, projectId, characters, completedSprites, doneBackgrou
 
 function Pending() {
   return <div style={{ height: 36, background: '#1f2937', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#4b5563' }}>Not generated yet</div>
+}
+
+function NarrationLibraryPicker({ versions, assetUrl, onSelect, onClose }: {
+  versions: Array<{ pageNum: number; version: any }>
+  assetUrl: (url: string) => string
+  onSelect: (url: string) => Promise<void>
+  onClose: () => void
+}) {
+  const [playingUrl, setPlayingUrl] = useState<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
+
+  function togglePlay(url: string) {
+    const audio = audioRef.current
+    if (!audio) return
+    if (playingUrl === url) {
+      audio.pause()
+      setPlayingUrl(null)
+    } else {
+      audio.src = assetUrl(url)
+      audio.play().catch(() => {})
+      setPlayingUrl(url)
+    }
+  }
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <audio ref={audioRef} onEnded={() => setPlayingUrl(null)} style={{ display: 'none' }} />
+      <div style={{ background: '#111827', border: '1px solid #374151', borderRadius: 8, width: 560, maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Header */}
+        <div style={{ padding: '10px 16px', borderBottom: '1px solid #1f2937', display: 'flex', alignItems: 'center' }}>
+          <span style={{ color: 'white', fontWeight: 'bold', fontSize: 13, flex: 1 }}>🎙 Voice Library</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
+        </div>
+        {/* List */}
+        <div style={{ overflowY: 'auto', padding: 12, flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {versions.length === 0 ? (
+            <div style={{ color: '#4b5563', fontSize: 12, textAlign: 'center', padding: 40 }}>No narrations generated yet.</div>
+          ) : versions.map(({ pageNum, version }) => {
+            const gi = version.generation_inputs ?? {}
+            const isPlaying = playingUrl === version.url
+            return (
+              <div
+                key={version.url}
+                style={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 6, padding: '10px 12px' }}
+              >
+                {/* Top: page badge + voice */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                  <span style={{ fontSize: 9, color: '#6366f1', background: '#1e1b2e', border: '1px solid #4c1d95', borderRadius: 3, padding: '1px 5px' }}>p.{pageNum}</span>
+                  {gi.mood && <span style={{ fontSize: 9, color: '#fcd34d', background: '#1c1a10', border: '1px solid #78350f', borderRadius: 3, padding: '1px 5px' }}>{gi.mood}</span>}
+                  {gi.voice && <span style={{ fontSize: 9, color: '#67e8f9', background: '#0e1e2a', border: '1px solid #164e63', borderRadius: 3, padding: '1px 5px' }}>🎤 {gi.voice}</span>}
+                </div>
+                {/* Text preview */}
+                {gi.text && (
+                  <div style={{ fontSize: 11, color: '#9ca3af', lineHeight: 1.5, marginBottom: 8, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    {gi.text}
+                  </div>
+                )}
+                {/* Actions */}
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    onClick={() => togglePlay(version.url)}
+                    style={{
+                      background: isPlaying ? '#7c3aed' : '#374151', color: isPlaying ? 'white' : '#d1d5db',
+                      border: 'none', borderRadius: 4, padding: '4px 10px', fontSize: 10, cursor: 'pointer', flexShrink: 0,
+                    }}
+                  >
+                    {isPlaying ? '⏸ Pause' : '▶ Preview'}
+                  </button>
+                  <button
+                    onClick={() => onSelect(version.url)}
+                    style={{ marginLeft: 'auto', background: '#78350f', color: '#fcd34d', border: 'none', borderRadius: 4, padding: '4px 12px', fontSize: 10, cursor: 'pointer', fontWeight: 'bold' }}
+                  >
+                    Use
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 

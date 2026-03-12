@@ -168,7 +168,16 @@ export function AssetLibraryPicker({ projectId, onSelect, onClose, title, defaul
                   >
                     <div style={{ height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a' }}>
                       {img && <img src={fullUrl} alt={item.filename} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} onError={e => { (e.target as HTMLImageElement).style.opacity = '0.1' }} />}
-                      {vid && <span style={{ fontSize: 30 }}>🎬</span>}
+                      {vid && (
+                        <video
+                          src={fullUrl}
+                          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }}
+                          preload="metadata"
+                          muted
+                          onMouseEnter={e => { const v = e.currentTarget; v.currentTime = 0; v.play().catch(() => {}) }}
+                          onMouseLeave={e => { const v = e.currentTarget; v.pause(); v.currentTime = 0 }}
+                        />
+                      )}
                       {aud && <span style={{ fontSize: 30 }}>🎵</span>}
                       {!img && !vid && !aud && <span style={{ fontSize: 30 }}>📄</span>}
                     </div>
