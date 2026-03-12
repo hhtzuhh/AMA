@@ -1,5 +1,5 @@
 interface Props {
-  pageNum: number
+  pageNum: string | number
   totalPages: number
   charName: string
   spriteState: string

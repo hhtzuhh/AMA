@@ -35,9 +35,17 @@ export interface Page {
 }
 
 export interface StoryEdge {
-  from: number   // system page number
-  to: number     // system page number
-  label?: string // optional condition/description
+  from: number | string   // system page number or live node id
+  to: number | string     // system page number or live node id
+  label?: string          // optional condition/description
+}
+
+export interface LiveNodeData {
+  id: string
+  character: string
+  bg_url: string
+  system_prompt: string
+  label: string
 }
 
 export interface StoryData {
@@ -47,6 +55,7 @@ export interface StoryData {
   characters: Character[]
   pages: Page[]
   edges?: StoryEdge[]
+  live_nodes?: LiveNodeData[]
 }
 
 export interface SpriteVersion {

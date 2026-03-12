@@ -315,6 +315,38 @@ def save_edges(project_id: str, body: EdgesBody):
     return {"ok": True}
 
 
+class LiveNodeBody(BaseModel):
+    id: str
+    character: str = ""
+    bg_url: str = ""
+    system_prompt: str = ""
+    label: str = "Live Interaction"
+
+
+@router.get("/{project_id}/live-nodes")
+def get_live_nodes(project_id: str):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    return storage.get_live_nodes(project_id)
+
+
+@router.put("/{project_id}/live-nodes/{node_id}")
+def upsert_live_node(project_id: str, node_id: str, body: LiveNodeBody):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    node = body.model_dump()
+    node["id"] = node_id
+    return storage.save_live_node(project_id, node)
+
+
+@router.delete("/{project_id}/live-nodes/{node_id}")
+def remove_live_node(project_id: str, node_id: str):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    storage.delete_live_node(project_id, node_id)
+    return {"ok": True}
+
+
 @router.post("/{project_id}/pages/{page_num}/ref-image")
 async def upload_ref_image(project_id: str, page_num: int, file: UploadFile = File(...)):
     """Upload a custom reference image for background generation."""

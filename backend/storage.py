@@ -532,6 +532,38 @@ def _write_meta(pdir: Path, meta: dict) -> None:
     _meta_path(pdir).write_text(json.dumps(meta, indent=2))
 
 
+def get_live_nodes(project_id: str) -> list:
+    data = get_story_data(project_id)
+    if not data:
+        return []
+    return data.get("live_nodes", [])
+
+
+def save_live_node(project_id: str, node: dict) -> dict:
+    path = project_dir(project_id) / "story_data.json"
+    data = json.loads(path.read_text())
+    live_nodes = data.setdefault("live_nodes", [])
+    existing = next((i for i, n in enumerate(live_nodes) if n["id"] == node["id"]), None)
+    if existing is not None:
+        live_nodes[existing] = node
+    else:
+        live_nodes.append(node)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    return node
+
+
+def delete_live_node(project_id: str, node_id: str) -> None:
+    path = project_dir(project_id) / "story_data.json"
+    data = json.loads(path.read_text())
+    data["live_nodes"] = [n for n in data.get("live_nodes", []) if n["id"] != node_id]
+    # Also remove edges referencing this node
+    data["edges"] = [
+        e for e in data.get("edges", [])
+        if str(e.get("from")) != node_id and str(e.get("to")) != node_id
+    ]
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
 def _init_asset_tracking(project_id: str, story_data: dict) -> None:
     """Pre-populate meta.json with empty page/character entries from story_data."""
     pdir = project_dir(project_id)

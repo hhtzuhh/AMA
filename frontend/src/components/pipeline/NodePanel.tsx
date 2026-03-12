@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import type { Page, Character } from '../../types'
+import type { Page, Character, LiveNodeData } from '../../types'
 import { charSlug } from './PageNode'
 import { AssetLibraryPicker } from './AssetLibraryPicker'
 
@@ -13,6 +13,8 @@ export interface StageInfo {
 type SelectedNode =
   | { type: 'pipelineStage'; data: StageInfo }
   | { type: 'page'; data: { page: Page } }
+  | { type: 'live'; data: { node: LiveNodeData } }
+  | { type: 'edge'; data: { edgeId: string; label: string } }
 
 interface Props {
   selected: SelectedNode | null
@@ -26,9 +28,12 @@ interface Props {
   onPageDeleted: (pageNum: number) => void
   onPageUpdated: () => void
   characters: Character[]
+  onLiveNodeDeleted?: (nodeId: string) => void
+  onLiveNodeUpdated?: (node: LiveNodeData) => void
+  onEdgeLabelSaved?: (edgeId: string, label: string) => void
 }
 
-export default function NodePanel({ selected, onClose, manifest, completedSprites, doneBackgrounds, doneNarrations, onManifestChange, onPageDeleted, onPageUpdated, characters }: Props) {
+export default function NodePanel({ selected, onClose, manifest, completedSprites, doneBackgrounds, doneNarrations, onManifestChange, onPageDeleted, onPageUpdated, characters, onLiveNodeDeleted, onLiveNodeUpdated, onEdgeLabelSaved }: Props) {
   const { projectId } = useParams<{ projectId: string }>()
 
   function assetUrl(path: string) {
@@ -106,6 +111,49 @@ export default function NodePanel({ selected, onClose, manifest, completedSprite
           allNarrationVersions={getAllNarrationVersions()}
         />
       )}
+      {selected.type === 'live' && (
+        <LiveNodePanel
+          node={selected.data.node}
+          projectId={projectId!}
+          characters={characters}
+          onDeleted={onLiveNodeDeleted ?? (() => {})}
+          onUpdated={onLiveNodeUpdated ?? (() => {})}
+        />
+      )}
+      {selected.type === 'edge' && (
+        <EdgeLabelPanel
+          key={selected.data.edgeId}
+          edgeId={selected.data.edgeId}
+          initialLabel={selected.data.label}
+          onSave={(label) => onEdgeLabelSaved?.(selected.data.edgeId, label)}
+        />
+      )}
+    </div>
+  )
+}
+
+function EdgeLabelPanel({ edgeId, initialLabel, onSave }: { edgeId: string; initialLabel: string; onSave: (label: string) => void }) {
+  const [label, setLabel] = useState(initialLabel)
+  return (
+    <div>
+      <h2 style={{ color: 'white', fontWeight: 'bold', fontSize: 13, marginBottom: 12 }}>Edge Condition</h2>
+      <p style={{ color: '#9ca3af', fontSize: 11, marginBottom: 10 }}>
+        Describe when the AI should follow this path. The AI uses this to decide which edge to take.
+      </p>
+      <label style={{ color: '#9ca3af', fontSize: 11 }}>Condition label</label>
+      <input
+        value={label}
+        onChange={e => setLabel(e.target.value)}
+        placeholder='e.g. "child roared loudly"'
+        style={{ display: 'block', width: '100%', background: '#1e1e3f', color: 'white', border: '1px solid #374151', borderRadius: 6, padding: '6px 8px', fontSize: 12, marginTop: 4, marginBottom: 10, boxSizing: 'border-box' }}
+      />
+      <button
+        onClick={() => onSave(label)}
+        style={{ background: '#4f46e5', color: 'white', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 12, cursor: 'pointer' }}
+      >
+        Save
+      </button>
+      <p style={{ color: '#6b7280', fontSize: 10, marginTop: 8 }}>Edge: {edgeId}</p>
     </div>
   )
 }
@@ -1456,6 +1504,127 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
     <div style={{ marginBottom: 8 }}>
       <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1 }}>{label}</div>
       <div style={{ fontSize: 11, color: '#d1d5db', fontFamily: mono ? 'monospace' : undefined }}>{value}</div>
+    </div>
+  )
+}
+
+
+function LiveNodePanel({
+  node,
+  projectId,
+  characters,
+  onDeleted,
+  onUpdated,
+}: {
+  node: LiveNodeData
+  projectId: string
+  characters: Character[]
+  onDeleted: (nodeId: string) => void
+  onUpdated: (node: LiveNodeData) => void
+}) {
+  const [label, setLabel] = useState(node.label)
+  const [character, setCharacter] = useState(node.character)
+  const [bgUrl, setBgUrl] = useState(node.bg_url)
+  const [systemPrompt, setSystemPrompt] = useState(node.system_prompt)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  async function save() {
+    setSaving(true)
+    const updated: LiveNodeData = { id: node.id, label, character, bg_url: bgUrl, system_prompt: systemPrompt }
+    await fetch(`${API}/api/projects/${projectId}/live-nodes/${node.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    })
+    setSaving(false)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+    onUpdated(updated)
+  }
+
+  async function deleteNode() {
+    if (!confirm(`Delete live node "${node.label || node.id}"? This cannot be undone.`)) return
+    await fetch(`${API}/api/projects/${projectId}/live-nodes/${node.id}`, { method: 'DELETE' })
+    onDeleted(node.id)
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', background: '#1f2937', border: '1px solid #374151',
+    color: '#d1d5db', borderRadius: 4, padding: '4px 8px', fontSize: 12,
+    boxSizing: 'border-box',
+  }
+  const labelStyle: React.CSSProperties = {
+    fontSize: 10, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1,
+    display: 'block', marginBottom: 3, marginTop: 10,
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+        <span style={{ fontSize: 14 }}>🎤</span>
+        <h2 style={{ color: '#c084fc', fontWeight: 'bold', fontSize: 13, margin: 0 }}>Live Interaction Node</h2>
+      </div>
+
+      <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 12, fontFamily: 'monospace' }}>{node.id}</div>
+
+      <label style={labelStyle}>Label</label>
+      <input
+        style={inputStyle}
+        value={label}
+        onChange={e => setLabel(e.target.value)}
+        placeholder="Live Interaction"
+      />
+
+      <label style={labelStyle}>Character</label>
+      <select
+        style={{ ...inputStyle, cursor: 'pointer' }}
+        value={character}
+        onChange={e => setCharacter(e.target.value)}
+      >
+        <option value="">— none —</option>
+        {characters.map(c => (
+          <option key={c.name} value={c.name}>{c.name}</option>
+        ))}
+      </select>
+
+      <label style={labelStyle}>Background URL</label>
+      <input
+        style={inputStyle}
+        value={bgUrl}
+        onChange={e => setBgUrl(e.target.value)}
+        placeholder="scenes/my_bg.mp4"
+      />
+
+      <label style={labelStyle}>System Prompt</label>
+      <textarea
+        style={{ ...inputStyle, minHeight: 120, resize: 'vertical' }}
+        value={systemPrompt}
+        onChange={e => setSystemPrompt(e.target.value)}
+        placeholder="You are a character in a children's story..."
+      />
+
+      <div style={{ display: 'flex', gap: 6, marginTop: 14 }}>
+        <button
+          onClick={save}
+          disabled={saving}
+          style={{
+            flex: 1, background: saving ? '#374151' : '#7c3aed', color: 'white', border: 'none',
+            borderRadius: 4, padding: '6px 12px', fontSize: 12, cursor: saving ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save'}
+        </button>
+        <button
+          onClick={deleteNode}
+          style={{
+            background: '#1f2937', color: '#ef4444', border: '1px solid #374151',
+            borderRadius: 4, padding: '6px 12px', fontSize: 12, cursor: 'pointer',
+          }}
+        >
+          Delete
+        </button>
+      </div>
     </div>
   )
 }

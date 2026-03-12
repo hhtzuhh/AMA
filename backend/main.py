@@ -7,7 +7,7 @@ logging.basicConfig(
 )
 from fastapi.middleware.cors import CORSMiddleware
 
-from routes import projects, pipeline, assets
+from routes import projects, pipeline, assets, live
 from config import MOCK_MODE
 
 # Suppress noisy access logs for frequent polling endpoints
@@ -23,6 +23,11 @@ class _PollFilter(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(_PollFilter())
 logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("google_adk").setLevel(logging.CRITICAL)
+logging.getLogger("py.warnings").setLevel(logging.ERROR)
+
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
 app = FastAPI(title="AMA API")
 
@@ -36,6 +41,7 @@ app.add_middleware(
 app.include_router(projects.router)
 app.include_router(pipeline.router)
 app.include_router(assets.router)
+app.include_router(live.router)
 
 
 @app.get("/api/health")
