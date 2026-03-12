@@ -56,7 +56,11 @@ async def _mock(job: Job, project_id: str) -> None:
         url = f"scenes/page_{actual_page}_bg_v{version}.mp4"
 
         shutil.copy2(src_file, dst / url)
-        storage.record_background(project_id, actual_page, url)
+        storage.record_background(project_id, actual_page, url, generation_inputs={
+            "prompt": f"Mock background for page {page_num}",
+            "ref_image": page_data.get("ref_image"),
+            "ref_source": page_data.get("ref_source", "mock"),
+        })
         job.emit({"type": "background", "page": page_num, "status": "done", "url": url})
         count += 1
 
@@ -100,7 +104,11 @@ async def _mock_page(job: Job, project_id: str, page_num: int) -> None:
     version = len(existing) + 1
     url = f"scenes/page_{actual_page}_bg_v{version}.mp4"
     shutil.copy2(src_file, dst / url)
-    storage.record_background(project_id, actual_page, url)
+    storage.record_background(project_id, actual_page, url, generation_inputs={
+        "prompt": f"Mock background for page {page_num}",
+        "ref_image": page_data.get("ref_image"),
+        "ref_source": page_data.get("ref_source", "mock"),
+    })
     job.emit({"type": "background", "page": page_num, "status": "done", "url": url})
     job.progress = "Done"
     job.result = {"videos_generated": 1}
@@ -200,7 +208,11 @@ async def _real_page(job: Job, project_id: str, page_num: int) -> None:
         video = operation.response.generated_videos[0]
         await asyncio.to_thread(client.files.download, file=video.video)
         video.video.save(str(out_path))
-        storage.record_background(project_id, actual_page, url)
+        storage.record_background(project_id, actual_page, url, generation_inputs={
+            "prompt": prompt,
+            "ref_image": page_data.get("ref_image"),
+            "ref_source": page_data.get("ref_source", "pdf"),
+        })
         job.emit({"type": "background", "page": page_num, "status": "done", "url": url})
         job.result = {"videos_generated": 1}
     else:
@@ -338,8 +350,10 @@ async def _real(job: Job, project_id: str) -> None:
                     duration_seconds=8,
                 ),
             )
-        operations[page_num] = (operation, actual_page)
+        operations[page_num] = (operation, actual_page, prompt, page.get("ref_image"), page.get("ref_source", "pdf"))
+        log.info("Submitted page %d: %s", page_num, operation.name)
         job.progress = f"Submitted page {page_num}: {operation.name}"
+        await asyncio.sleep(35)  # Veo RPM limit = 2/min, need 30s+ between submissions
 
     if not operations:
         storage.update_pipeline_status(project_id, "background", "done")
@@ -353,9 +367,9 @@ async def _real(job: Job, project_id: str) -> None:
     while pending:
         await asyncio.sleep(15)
         done_pages = []
-        for page_num, (op, actual_page) in list(pending.items()):
+        for page_num, (op, actual_page, prompt, ref_image, ref_source) in list(pending.items()):
             op = await asyncio.to_thread(client.operations.get, op)
-            pending[page_num] = (op, actual_page)
+            pending[page_num] = (op, actual_page, prompt, ref_image, ref_source)
             if op.done:
                 done_pages.append(page_num)
                 if op.response and op.response.generated_videos:
@@ -366,7 +380,11 @@ async def _real(job: Job, project_id: str) -> None:
                     video = op.response.generated_videos[0]
                     await asyncio.to_thread(client.files.download, file=video.video)
                     video.video.save(str(out_path))
-                    storage.record_background(project_id, actual_page, url)
+                    storage.record_background(project_id, actual_page, url, generation_inputs={
+                        "prompt": prompt,
+                        "ref_image": ref_image,
+                        "ref_source": ref_source,
+                    })
                     job.emit({"type": "background", "page": page_num, "status": "done", "url": url})
                     count += 1
 

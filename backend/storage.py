@@ -70,7 +70,32 @@ def get_story_data(project_id: str) -> dict | None:
     path = project_dir(project_id) / "story_data.json"
     if not path.exists():
         return None
-    return json.loads(path.read_text())
+    data = json.loads(path.read_text())
+    # Migrate: backfill bg_url/nar_url from meta.json for pages that predate this field
+    _backfill_asset_urls(project_id, data)
+    return data
+
+
+def _backfill_asset_urls(project_id: str, story_data: dict) -> None:
+    """One-time migration: set bg_url/nar_url on pages that have versions in meta.json but no url field."""
+    meta = _read_meta(project_dir(project_id))
+    dirty = False
+    for page in story_data.get("pages", []):
+        actual = page.get("actual_page", page["page"])
+        meta_page = meta.get("pages", {}).get(str(actual), {})
+        for field, kind in [("bg_url", "background"), ("nar_url", "narration")]:
+            if field not in page:
+                versions = meta_page.get(kind, {}).get("versions", [])
+                # Use current index if present (legacy), else latest
+                current = meta_page.get(kind, {}).get("current", len(versions) - 1)
+                if versions and 0 <= current < len(versions):
+                    page[field] = versions[current]["url"]
+                    dirty = True
+                else:
+                    page[field] = None
+    if dirty:
+        path = project_dir(project_id) / "story_data.json"
+        path.write_text(json.dumps(story_data, indent=2, ensure_ascii=False))
 
 
 def get_edges(project_id: str) -> list[dict]:
@@ -115,44 +140,56 @@ def record_sprite(project_id: str, char_slug: str, state: str, url: str, generat
     _write_meta(pdir, meta)
 
 
-def record_background(project_id: str, page_num: int, url: str) -> None:
-    """Record a generated background video version in meta.json."""
+def record_background(project_id: str, page_num: int, url: str, generation_inputs: dict = None) -> None:
+    """Record a generated background video version in meta.json and set bg_url in story_data.json."""
     pdir = project_dir(project_id)
+    # Append version to meta.json (history)
     meta = _read_meta(pdir)
     pages = meta.setdefault("pages", {})
     page = pages.setdefault(str(page_num), {"enabled": True})
-    entry = page.setdefault("background", {"current": 0, "versions": []})
-    entry["versions"].append({"url": url, "created_at": datetime.utcnow().isoformat()})
-    entry["current"] = len(entry["versions"]) - 1
+    entry = page.setdefault("background", {"versions": []})
+    version_entry = {"url": url, "created_at": datetime.utcnow().isoformat()}
+    if generation_inputs:
+        version_entry["generation_inputs"] = generation_inputs
+    entry["versions"].append(version_entry)
     _write_meta(pdir, meta)
+    # Set active URL in story_data.json (source of truth)
+    _set_page_asset_url(project_id, page_num, "bg_url", url)
 
 
-def record_narration(project_id: str, page_num: int, url: str) -> None:
-    """Record a generated narration audio version in meta.json."""
+def record_narration(project_id: str, page_num: int, url: str, generation_inputs: dict = None) -> None:
+    """Record a generated narration audio version in meta.json and set nar_url in story_data.json."""
     pdir = project_dir(project_id)
+    # Append version to meta.json (history)
     meta = _read_meta(pdir)
     pages = meta.setdefault("pages", {})
     page = pages.setdefault(str(page_num), {"enabled": True})
-    entry = page.setdefault("narration", {"current": 0, "versions": []})
-    entry["versions"].append({"url": url, "created_at": datetime.utcnow().isoformat()})
-    entry["current"] = len(entry["versions"]) - 1
+    entry = page.setdefault("narration", {"versions": []})
+    version_entry = {"url": url, "created_at": datetime.utcnow().isoformat()}
+    if generation_inputs:
+        version_entry["generation_inputs"] = generation_inputs
+    entry["versions"].append(version_entry)
     _write_meta(pdir, meta)
+    # Set active URL in story_data.json (source of truth)
+    _set_page_asset_url(project_id, page_num, "nar_url", url)
 
 
 def set_current_version(project_id: str, kind: str, version: int,
                         char: str = "", state: str = "", page: int = 0) -> None:
-    """Update the active version index for a background or narration."""
+    """Set the active bg_url or nar_url on the page in story_data.json by version index."""
     pdir = project_dir(project_id)
     meta = _read_meta(pdir)
     if kind == "background":
         entry = meta.get("pages", {}).get(str(page), {}).get("background")
+        field = "bg_url"
     elif kind == "narration":
         entry = meta.get("pages", {}).get(str(page), {}).get("narration")
+        field = "nar_url"
     else:
         return
     if entry and 0 <= version < len(entry["versions"]):
-        entry["current"] = version
-        _write_meta(pdir, meta)
+        url = entry["versions"][version]["url"]
+        _set_page_asset_url(project_id, page, field, url)
 
 
 def set_page_sprite_version(project_id: str, page_num: int, char_slug_val: str, state: str, sprite_url: str) -> None:
@@ -233,6 +270,8 @@ def add_page(project_id: str) -> dict:
         "foreground_characters": [],
         "background_characters": [],
         "character_states": [],
+        "bg_url": None,
+        "nar_url": None,
     }
     data.setdefault("pages", []).append(page)
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
@@ -436,6 +475,19 @@ def copy_tree(src: Path, dst: Path) -> None:
             target = dst / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(f, target)
+
+
+def _set_page_asset_url(project_id: str, page_num: int, field: str, url: str) -> None:
+    """Set bg_url or nar_url on the matching page entry in story_data.json."""
+    path = project_dir(project_id) / "story_data.json"
+    if not path.exists():
+        return
+    data = json.loads(path.read_text())
+    for p in data.get("pages", []):
+        if p.get("actual_page", p["page"]) == page_num:
+            p[field] = url
+            break
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 
 # --- internal ---

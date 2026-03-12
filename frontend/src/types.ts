@@ -30,6 +30,8 @@ export interface Page {
   ref_page?: number
   ref_source?: 'pdf' | 'custom'
   ref_image?: string
+  bg_url?: string | null
+  nar_url?: string | null
 }
 
 export interface StoryEdge {

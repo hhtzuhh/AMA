@@ -74,7 +74,12 @@ async def _mock(job: Job, project_id: str) -> None:
         url = f"audio/page_{actual_page}_narration_v{version}.wav"
 
         shutil.copy2(src_file, dst / url)
-        storage.record_narration(project_id, actual_page, url)
+        storage.record_narration(project_id, actual_page, url, generation_inputs={
+            "text": page_data.get("text", ""),
+            "mood": page_data.get("mood", ""),
+            "setting": page_data.get("setting", ""),
+            "voice": "Sulafat",
+        })
         job.emit({"type": "narration", "page": page_num, "status": "done", "url": url})
         count += 1
 
@@ -118,7 +123,12 @@ async def _mock_page(job: Job, project_id: str, page_num: int) -> None:
     version = len(existing) + 1
     url = f"audio/page_{actual_page}_narration_v{version}.wav"
     shutil.copy2(src_file, dst / url)
-    storage.record_narration(project_id, actual_page, url)
+    storage.record_narration(project_id, actual_page, url, generation_inputs={
+        "text": page_data.get("text", ""),
+        "mood": page_data.get("mood", ""),
+        "setting": page_data.get("setting", ""),
+        "voice": "Sulafat",
+    })
     job.emit({"type": "narration", "page": page_num, "status": "done", "url": url})
     job.progress = "Done"
     job.result = {"audio_generated": 1}
@@ -165,16 +175,41 @@ async def _real_page(job: Job, project_id: str, page_num: int) -> None:
             ),
         )
     except Exception as e:
+        print(f"[tts] Gemini API error on page {page_num}: {e}")
         log.error("Gemini error on page %d: %s", page_num, e)
         raise
-    audio_data = response.candidates[0].content.parts[0].inline_data.data
+
+    if not response.candidates:
+        finish = getattr(response, "prompt_feedback", None)
+        msg = f"Gemini returned no candidates for page {page_num} (prompt_feedback: {finish})"
+        print(f"[tts] {msg}")
+        raise RuntimeError(msg)
+
+    candidate = response.candidates[0]
+    finish_reason = getattr(candidate, "finish_reason", None)
+    if finish_reason and str(finish_reason) not in ("STOP", "FinishReason.STOP", "1"):
+        msg = f"Gemini blocked response for page {page_num}: finish_reason={finish_reason}"
+        print(f"[tts] {msg}")
+        raise RuntimeError(msg)
+
+    try:
+        audio_data = candidate.content.parts[0].inline_data.data
+    except (IndexError, AttributeError) as e:
+        msg = f"Gemini response has no audio data for page {page_num}: {e}"
+        print(f"[tts] {msg}")
+        raise RuntimeError(msg) from e
 
     (dst / "audio").mkdir(parents=True, exist_ok=True)
     existing = list((dst / "audio").glob(f"page_{actual_page}_narration_v*.wav"))
     version = len(existing) + 1
     url = f"audio/page_{actual_page}_narration_v{version}.wav"
     _write_wav(dst / url, audio_data)
-    storage.record_narration(project_id, actual_page, url)
+    storage.record_narration(project_id, actual_page, url, generation_inputs={
+        "text": text,
+        "mood": page_data.get("mood", ""),
+        "setting": page_data.get("setting", ""),
+        "voice": "Sulafat",
+    })
     job.emit({"type": "narration", "page": page_num, "status": "done", "url": url})
     job.progress = "Done"
     job.result = {"audio_generated": 1}
@@ -216,16 +251,38 @@ async def _real(job: Job, project_id: str) -> None:
                 ),
             )
         except Exception as e:
+            print(f"[tts] Gemini API error on page {page_num}: {e}")
             log.error("Gemini error on page %d: %s", page_num, e)
             raise
-        audio_data = response.candidates[0].content.parts[0].inline_data.data
+
+        if not response.candidates:
+            msg = f"Gemini returned no candidates for page {page_num} (prompt_feedback: {getattr(response, 'prompt_feedback', None)})"
+            print(f"[tts] {msg}")
+            raise RuntimeError(msg)
+        candidate = response.candidates[0]
+        finish_reason = getattr(candidate, "finish_reason", None)
+        if finish_reason and str(finish_reason) not in ("STOP", "FinishReason.STOP", "1"):
+            msg = f"Gemini blocked response for page {page_num}: finish_reason={finish_reason}"
+            print(f"[tts] {msg}")
+            raise RuntimeError(msg)
+        try:
+            audio_data = candidate.content.parts[0].inline_data.data
+        except (IndexError, AttributeError) as e:
+            msg = f"Gemini response has no audio data for page {page_num}: {e}"
+            print(f"[tts] {msg}")
+            raise RuntimeError(msg) from e
 
         existing = list((dst / "audio").glob(f"page_{actual_page}_narration_v*.wav"))
         version = len(existing) + 1
         url = f"audio/page_{actual_page}_narration_v{version}.wav"
 
         _write_wav(dst / url, audio_data)
-        storage.record_narration(project_id, actual_page, url)
+        storage.record_narration(project_id, actual_page, url, generation_inputs={
+            "text": page["text"].strip(),
+            "mood": page.get("mood", ""),
+            "setting": page.get("setting", ""),
+            "voice": "Sulafat",
+        })
         job.emit({"type": "narration", "page": page_num, "status": "done", "url": url})
         count += 1
         await asyncio.sleep(0.3)
