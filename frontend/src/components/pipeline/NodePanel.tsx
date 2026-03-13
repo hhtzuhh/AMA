@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import type { Page, Character, LiveNodeData } from '../../types'
+import type { Page, Character, LiveNodeData, ImageStoryNodeData } from '../../types'
 import { charSlug } from './PageNode'
 import { AssetLibraryPicker } from './AssetLibraryPicker'
 
@@ -14,6 +14,7 @@ type SelectedNode =
   | { type: 'pipelineStage'; data: StageInfo }
   | { type: 'page'; data: { page: Page } }
   | { type: 'live'; data: { node: LiveNodeData } }
+  | { type: 'image_story'; data: { node: ImageStoryNodeData } }
   | { type: 'edge'; data: { edgeId: string; label: string } }
 
 interface Props {
@@ -30,10 +31,12 @@ interface Props {
   characters: Character[]
   onLiveNodeDeleted?: (nodeId: string) => void
   onLiveNodeUpdated?: (node: LiveNodeData) => void
+  onImageNodeDeleted?: (nodeId: string) => void
+  onImageNodeUpdated?: (node: ImageStoryNodeData) => void
   onEdgeLabelSaved?: (edgeId: string, label: string) => void
 }
 
-export default function NodePanel({ selected, onClose, manifest, completedSprites, doneBackgrounds, doneNarrations, onManifestChange, onPageDeleted, onPageUpdated, characters, onLiveNodeDeleted, onLiveNodeUpdated, onEdgeLabelSaved }: Props) {
+export default function NodePanel({ selected, onClose, manifest, completedSprites, doneBackgrounds, doneNarrations, onManifestChange, onPageDeleted, onPageUpdated, characters, onLiveNodeDeleted, onLiveNodeUpdated, onImageNodeDeleted, onImageNodeUpdated, onEdgeLabelSaved }: Props) {
   const { projectId } = useParams<{ projectId: string }>()
 
   function assetUrl(path: string) {
@@ -118,6 +121,15 @@ export default function NodePanel({ selected, onClose, manifest, completedSprite
           characters={characters}
           onDeleted={onLiveNodeDeleted ?? (() => {})}
           onUpdated={onLiveNodeUpdated ?? (() => {})}
+        />
+      )}
+      {selected.type === 'image_story' && (
+        <ImageStoryNodePanel
+          node={selected.data.node}
+          projectId={projectId!}
+          characters={characters}
+          onDeleted={onImageNodeDeleted ?? (() => {})}
+          onUpdated={onImageNodeUpdated ?? (() => {})}
         />
       )}
       {selected.type === 'edge' && (
@@ -1508,6 +1520,454 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
   )
 }
 
+
+function ImageStoryNodePanel({
+  node,
+  projectId,
+  characters,
+  onDeleted,
+  onUpdated,
+}: {
+  node: ImageStoryNodeData
+  projectId: string
+  characters: Character[]
+  onDeleted: (nodeId: string) => void
+  onUpdated: (node: ImageStoryNodeData) => void
+}) {
+  const [label, setLabel] = useState(node.label)
+  const [storyPrompt, setStoryPrompt] = useState(node.story_prompt ?? (node as any).story_text ?? '')
+  const [charRefs, setCharRefs] = useState<string[]>(node.character_refs ?? [])
+  const [bgRefs, setBgRefs] = useState<string[]>(node.background_refs ?? [])
+  const [kenBurns, setKenBurns] = useState(node.ken_burns ?? false)
+  const [numShots, setNumShots] = useState(node.num_shots ?? 3)
+  const [shots, setShots] = useState(node.shots ?? [])
+  const [shotTexts, setShotTexts] = useState<string[]>((node.shots ?? []).map(s => s.prompt ?? ''))
+  const [shotManifest, setShotManifest] = useState<Record<string, any>>({})
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [genProgress, setGenProgress] = useState('')
+  const [showBgPicker, setShowBgPicker] = useState(false)
+  const [showShotPicker, setShowShotPicker] = useState<number | null>(null) // shot index (0-based)
+  const [showShotAudioPicker, setShowShotAudioPicker] = useState<number | null>(null)
+  const [regenTtsIdx, setRegenTtsIdx] = useState<number | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  async function loadShotManifest() {
+    const r = await fetch(`${API}/api/projects/${projectId}/image-nodes/manifest`)
+    if (r.ok) {
+      const m = await r.json()
+      setShotManifest(m[node.id]?.shots ?? {})
+    }
+  }
+
+  useEffect(() => { loadShotManifest() }, [node.id])
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', background: '#1f2937', border: '1px solid #374151',
+    color: '#d1d5db', borderRadius: 4, padding: '4px 8px', fontSize: 12,
+    boxSizing: 'border-box',
+  }
+  const labelStyle: React.CSSProperties = {
+    fontSize: 10, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1,
+    display: 'block', marginBottom: 3, marginTop: 10,
+  }
+
+  function currentNode(): ImageStoryNodeData {
+    return { ...node, label, story_prompt: storyPrompt, character_refs: charRefs, background_refs: bgRefs, ken_burns: kenBurns, num_shots: numShots, shots }
+  }
+
+  async function save() {
+    setSaving(true)
+    const updated = currentNode()
+    await fetch(`${API}/api/projects/${projectId}/image-nodes/${node.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    })
+    setSaving(false)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+    onUpdated(updated)
+  }
+
+  async function generate() {
+    await save()
+    setGenerating(true)
+    setGenProgress('Starting...')
+    const res = await fetch(`${API}/api/projects/${projectId}/image-nodes/${node.id}/generate`, { method: 'POST' })
+    if (!res.ok) { setGenerating(false); return }
+    const { job_id } = await res.json()
+
+    pollRef.current = setInterval(async () => {
+      const jr = await fetch(`${API}/api/projects/${projectId}/pipeline/jobs/${job_id}`)
+      const job = await jr.json()
+      if (job.progress) setGenProgress(job.progress)
+
+      if (job.status === 'done') {
+        clearInterval(pollRef.current!)
+        setGenerating(false)
+        setGenProgress('')
+        await reloadShots()
+        loadShotManifest()
+      } else if (job.status === 'failed') {
+        clearInterval(pollRef.current!)
+        setGenerating(false)
+        setGenProgress(`Failed: ${job.error?.split('\n')[0] ?? 'unknown error'}`)
+      }
+    }, 2000)
+  }
+
+  async function reloadShots() {
+    const sr = await fetch(`${API}/api/projects/${projectId}/story`)
+    if (sr.ok) {
+      const story = await sr.json()
+      const updated = story.image_nodes?.find((n: ImageStoryNodeData) => n.id === node.id)
+      if (updated) {
+        const updatedShots = updated.shots ?? []
+        setShots(updatedShots)
+        setShotTexts(updatedShots.map((s: any) => s.prompt ?? ''))
+        onUpdated(updated)
+      }
+    }
+  }
+
+  async function setShotVersion(shotIndex: number, version: number) {
+    await fetch(`${API}/api/projects/${projectId}/image-nodes/${node.id}/shots/${shotIndex + 1}/set-version`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version }),
+    })
+    await reloadShots()
+  }
+
+  async function pickShotUrl(shotIndex: number, url: string) {
+    await fetch(`${API}/api/projects/${projectId}/image-nodes/${node.id}/shots/${shotIndex + 1}/url`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_url: url }),
+    })
+    await reloadShots()
+  }
+
+  async function pickShotNarUrl(shotIndex: number, url: string) {
+    await fetch(`${API}/api/projects/${projectId}/image-nodes/${node.id}/shots/${shotIndex + 1}/nar-url`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nar_url: url }),
+    })
+    await reloadShots()
+  }
+
+  async function regenShotTts(shotIndex: number) {
+    setRegenTtsIdx(shotIndex)
+    const currentText = shotTexts[shotIndex] ?? shots[shotIndex]?.prompt ?? ''
+    const res = await fetch(`${API}/api/projects/${projectId}/image-nodes/${node.id}/shots/${shotIndex + 1}/generate-tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: currentText }),
+    })
+    if (!res.ok) { setRegenTtsIdx(null); return }
+    const { job_id } = await res.json()
+    const poll = setInterval(async () => {
+      const jr = await fetch(`${API}/api/projects/${projectId}/pipeline/jobs/${job_id}`)
+      const job = await jr.json()
+      if (job.status === 'done' || job.status === 'failed') {
+        clearInterval(poll)
+        setRegenTtsIdx(null)
+        await reloadShots()
+      }
+    }, 2000)
+  }
+
+  async function deleteNode() {
+    if (!confirm(`Delete image story node "${node.label || node.id}"? This cannot be undone.`)) return
+    await fetch(`${API}/api/projects/${projectId}/image-nodes/${node.id}`, { method: 'DELETE' })
+    onDeleted(node.id)
+  }
+
+  function toggleChar(slug: string) {
+    setCharRefs(prev => prev.includes(slug) ? prev.filter(s => s !== slug) : [...prev, slug])
+  }
+
+  function removeBgRef(url: string) {
+    setBgRefs(prev => prev.filter(u => u !== url))
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+        <span style={{ fontSize: 14 }}>🎨</span>
+        <h2 style={{ color: '#fbbf24', fontWeight: 'bold', fontSize: 13, margin: 0 }}>Image Story Node</h2>
+      </div>
+      <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 12, fontFamily: 'monospace' }}>{node.id}</div>
+
+      <label style={labelStyle}>Label</label>
+      <input style={inputStyle} value={label} onChange={e => setLabel(e.target.value)} placeholder="Scene name" />
+
+      <label style={labelStyle}>Story Prompt</label>
+      <textarea
+        style={{ ...inputStyle, minHeight: 90, resize: 'vertical' }}
+        value={storyPrompt}
+        onChange={e => setStoryPrompt(e.target.value)}
+        placeholder="Describe this story moment — Gemini will write narration text and generate images from this prompt..."
+      />
+
+      <label style={labelStyle}>Character Refs</label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+        {characters.length === 0 && <span style={{ fontSize: 10, color: '#6b7280' }}>No characters</span>}
+        {characters.map(c => {
+          const slug = charSlug(c.name)
+          const active = charRefs.includes(slug)
+          return (
+            <button
+              key={slug}
+              onClick={() => toggleChar(slug)}
+              style={{
+                fontSize: 10, padding: '2px 7px', borderRadius: 4, cursor: 'pointer',
+                background: active ? '#451a03' : '#1f2937',
+                color: active ? '#fbbf24' : '#6b7280',
+                border: `1px solid ${active ? '#b45309' : '#374151'}`,
+              }}
+            >
+              {c.name}
+            </button>
+          )
+        })}
+      </div>
+
+      <label style={labelStyle}>Background Refs</label>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: 4 }}>
+        {bgRefs.map(url => (
+          <div key={url} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#1f2937', borderRadius: 4, padding: '3px 6px' }}>
+            <img
+              src={`${API}/api/projects/${projectId}/assets/${url}`}
+              alt={url}
+              style={{ width: 28, height: 20, objectFit: 'cover', borderRadius: 2, flexShrink: 0 }}
+              onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+            />
+            <span style={{ fontSize: 9, color: '#9ca3af', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {url.split('/').pop()}
+            </span>
+            <button onClick={() => removeBgRef(url)} style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 13, cursor: 'pointer', padding: 0 }}>×</button>
+          </div>
+        ))}
+        <button
+          onClick={() => setShowBgPicker(true)}
+          style={{ fontSize: 10, background: '#1f2937', border: '1px dashed #374151', color: '#9ca3af', borderRadius: 4, padding: '3px 8px', cursor: 'pointer', textAlign: 'left' }}
+        >
+          + Add background ref…
+        </button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 12, marginTop: 10, alignItems: 'center' }}>
+        <label style={{ ...labelStyle, marginTop: 0, display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+          <input type="checkbox" checked={kenBurns} onChange={e => setKenBurns(e.target.checked)} />
+          <span>Ken Burns</span>
+        </label>
+        <label style={{ ...labelStyle, marginTop: 0, display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span>Shots</span>
+          <select
+            value={numShots}
+            onChange={e => setNumShots(Number(e.target.value))}
+            style={{ ...inputStyle, width: 52, padding: '2px 4px' }}
+          >
+            {[1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
+      </div>
+
+      {/* Shot thumbnails with version history */}
+      {shots.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 10, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Generated Shots</div>
+          {shots.map((shot, i) => {
+            const versions: any[] = shotManifest[String(i + 1)]?.versions ?? []
+            const activeUrl = shot.image_url
+            return (
+              <div key={i} style={{ marginBottom: 8, background: '#0f0800', borderRadius: 6, border: '1px solid #292524', overflow: 'hidden' }}>
+                {/* Active shot */}
+                <div style={{ position: 'relative' }}>
+                  <img
+                    src={`${API}/api/projects/${projectId}/assets/${activeUrl}`}
+                    alt={`Shot ${i + 1}`}
+                    style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', display: 'block' }}
+                    onError={e => { (e.target as HTMLImageElement).style.opacity = '0.1' }}
+                  />
+                  <div style={{ position: 'absolute', top: 4, left: 4, background: 'rgba(0,0,0,0.6)', fontSize: 9, color: '#fbbf24', padding: '1px 5px', borderRadius: 3 }}>
+                    Shot {i + 1}
+                  </div>
+                  <button
+                    onClick={() => setShowShotPicker(i)}
+                    style={{
+                      position: 'absolute', top: 4, right: 4,
+                      background: 'rgba(0,0,0,0.6)', border: '1px solid #374151',
+                      color: '#d1d5db', fontSize: 9, borderRadius: 3,
+                      padding: '1px 6px', cursor: 'pointer',
+                    }}
+                  >
+                    Pick
+                  </button>
+                </div>
+                {/* Editable narration text */}
+                <div style={{ padding: '4px 6px' }}>
+                  <div style={{ fontSize: 9, color: '#57534e', marginBottom: 2 }}>Narration text</div>
+                  <textarea
+                    value={shotTexts[i] ?? ''}
+                    onChange={e => setShotTexts(prev => { const next = [...prev]; next[i] = e.target.value; return next })}
+                    onBlur={async () => {
+                      const text = shotTexts[i] ?? ''
+                      if (text !== shot.prompt) {
+                        await fetch(`${API}/api/projects/${projectId}/image-nodes/${node.id}/shots/${i + 1}/text`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ text }),
+                        })
+                      }
+                    }}
+                    style={{
+                      width: '100%', background: '#1c1917', border: '1px solid #292524',
+                      color: '#a8a29e', borderRadius: 3, padding: '3px 5px', fontSize: 9,
+                      lineHeight: 1.5, resize: 'vertical', minHeight: 48, boxSizing: 'border-box',
+                      fontFamily: 'inherit', outline: 'none',
+                    }}
+                    placeholder="Narration text for this shot…"
+                  />
+                </div>
+                {/* Shot audio */}
+                <div style={{ padding: '4px 6px', borderTop: '1px solid #1c1917' }}>
+                  {shot.nar_url ? (
+                    <audio
+                      controls
+                      src={`${API}/api/projects/${projectId}/assets/${shot.nar_url}`}
+                      style={{ width: '100%', height: 24, display: 'block', marginBottom: 3 }}
+                    />
+                  ) : (
+                    <div style={{ fontSize: 9, color: '#57534e', marginBottom: 3 }}>No audio yet</div>
+                  )}
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button
+                      onClick={() => regenShotTts(i)}
+                      disabled={regenTtsIdx === i}
+                      style={{ fontSize: 9, background: '#1c1917', border: '1px solid #292524', color: '#a8a29e', borderRadius: 3, padding: '2px 6px', cursor: regenTtsIdx === i ? 'not-allowed' : 'pointer' }}
+                    >
+                      {regenTtsIdx === i ? '⏳' : '♪ Regen TTS'}
+                    </button>
+                    <button
+                      onClick={() => setShowShotAudioPicker(i)}
+                      style={{ fontSize: 9, background: '#1c1917', border: '1px solid #292524', color: '#a8a29e', borderRadius: 3, padding: '2px 6px', cursor: 'pointer' }}
+                    >
+                      Pick Audio
+                    </button>
+                  </div>
+                </div>
+                {/* Version strip */}
+                {versions.length > 1 && (
+                  <div style={{ padding: '4px 6px', borderTop: '1px solid #1c1917' }}>
+                    <div style={{ fontSize: 9, color: '#57534e', marginBottom: 3 }}>Versions ({versions.length})</div>
+                    <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                      {versions.map((v, vi) => {
+                        const isActive = v.url === activeUrl
+                        return (
+                          <div
+                            key={vi}
+                            onClick={() => !isActive && setShotVersion(i, vi)}
+                            style={{ position: 'relative', cursor: isActive ? 'default' : 'pointer' }}
+                          >
+                            <img
+                              src={`${API}/api/projects/${projectId}/assets/${v.url}`}
+                              alt={`v${vi + 1}`}
+                              style={{
+                                width: 44, height: 33, objectFit: 'cover', borderRadius: 3, display: 'block',
+                                border: `2px solid ${isActive ? '#fbbf24' : '#374151'}`,
+                                opacity: isActive ? 1 : 0.6,
+                              }}
+                              onError={e => { (e.target as HTMLImageElement).style.opacity = '0.1' }}
+                            />
+                            <div style={{ position: 'absolute', bottom: 1, right: 2, fontSize: 7, color: isActive ? '#fbbf24' : '#9ca3af' }}>
+                              v{vi + 1}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {genProgress && (
+        <div style={{ fontSize: 10, color: generating ? '#fbbf24' : '#ef4444', marginTop: 6, padding: '4px 6px', background: '#0f0800', borderRadius: 4 }}>
+          {generating ? '⏳ ' : ''}{genProgress}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 6, marginTop: 14 }}>
+        <button
+          onClick={save}
+          disabled={saving}
+          style={{ flex: 1, background: saving ? '#374151' : '#92400e', color: 'white', border: 'none', borderRadius: 4, padding: '6px 8px', fontSize: 11, cursor: saving ? 'not-allowed' : 'pointer' }}
+        >
+          {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save'}
+        </button>
+        <button
+          onClick={generate}
+          disabled={generating}
+          style={{ flex: 1, background: generating ? '#374151' : '#b45309', color: 'white', border: 'none', borderRadius: 4, padding: '6px 8px', fontSize: 11, cursor: generating ? 'not-allowed' : 'pointer' }}
+        >
+          {generating ? '⏳ Gen…' : shots.length > 0 ? '↺ Regen' : '▶ Generate'}
+        </button>
+        <button
+          onClick={deleteNode}
+          style={{ background: '#1f2937', color: '#ef4444', border: '1px solid #374151', borderRadius: 4, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+        >
+          Del
+        </button>
+      </div>
+
+      {showBgPicker && (
+        <AssetLibraryPicker
+          projectId={projectId}
+          title="Pick Background Reference"
+          defaultTab="refs"
+          onSelect={url => {
+            setBgRefs(prev => prev.includes(url) ? prev : [...prev, url])
+          }}
+          onClose={() => setShowBgPicker(false)}
+        />
+      )}
+
+      {showShotPicker !== null && (
+        <AssetLibraryPicker
+          projectId={projectId}
+          title={`Pick image for Shot ${showShotPicker + 1}`}
+          defaultTab="image_nodes"
+          onSelect={url => {
+            pickShotUrl(showShotPicker, url)
+            setShowShotPicker(null)
+          }}
+          onClose={() => setShowShotPicker(null)}
+        />
+      )}
+
+      {showShotAudioPicker !== null && (
+        <AssetLibraryPicker
+          projectId={projectId}
+          title={`Pick audio for Shot ${showShotAudioPicker + 1}`}
+          defaultTab="image_nodes"
+          onSelect={url => {
+            pickShotNarUrl(showShotAudioPicker, url)
+            setShowShotAudioPicker(null)
+          }}
+          onClose={() => setShowShotAudioPicker(null)}
+        />
+      )}
+    </div>
+  )
+}
 
 function LiveNodePanel({
   node,

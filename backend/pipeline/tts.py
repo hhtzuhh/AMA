@@ -4,7 +4,7 @@ Pipeline Step 4: TTS Narration (linear, per page)
 import asyncio
 import logging
 
-from config import MOCK_MODE, TEST_ASSETS_DIR, assets_dir, MODEL_TTS
+from config import MOCK_MODE, TEST_ASSETS_DIR, assets_dir, MODEL_TTS, make_genai_client
 from jobs import Job
 import storage
 
@@ -152,7 +152,7 @@ async def _real_page(job: Job, project_id: str, page_num: int) -> None:
         raise ValueError(f"Page {page_num} has no text to narrate")
 
     actual_page = page_data.get("actual_page", page_num)
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    client = make_genai_client()
     dst = assets_dir(project_id)
 
     job.current = {"type": "narration", "page": page_num}
@@ -224,7 +224,7 @@ async def _real(job: Job, project_id: str) -> None:
     if not story:
         raise ValueError("Run story understanding first")
 
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    client = make_genai_client()
     dst = assets_dir(project_id)
     count = 0
 

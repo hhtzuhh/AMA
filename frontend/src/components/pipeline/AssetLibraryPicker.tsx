@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 const API = 'http://localhost:8000'
 
-type Category = 'library' | 'sprites' | 'scenes' | 'audio' | 'refs'
+type Category = 'library' | 'sprites' | 'scenes' | 'audio' | 'refs' | 'image_nodes'
 
 interface AssetItem {
   url: string
@@ -75,6 +75,7 @@ export function AssetLibraryPicker({ projectId, onSelect, onClose, title, defaul
 
   const TABS: { key: Category; label: string }[] = [
     { key: 'library', label: 'Uploads' },
+    { key: 'image_nodes', label: 'Generated' },
     { key: 'sprites', label: 'Sprites' },
     { key: 'scenes', label: 'Scenes' },
     { key: 'audio', label: 'Audio' },

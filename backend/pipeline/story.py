@@ -12,7 +12,7 @@ from pathlib import Path
 
 log = logging.getLogger("pipeline.story")
 
-from config import MOCK_MODE, TEST_STORY_DATA, MODEL_STORY, project_dir, assets_dir
+from config import MOCK_MODE, TEST_STORY_DATA, MODEL_STORY, project_dir, assets_dir, make_genai_client
 from jobs import Job
 import storage
 
@@ -60,7 +60,7 @@ async def _real(job: Job, project_id: str) -> None:
 
     pdf_path = pdf_files[0]
 
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    client = make_genai_client()
 
     # Upload PDF with explicit mime type (matching test script)
     uploaded = await asyncio.to_thread(

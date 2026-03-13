@@ -7,7 +7,7 @@ logging.basicConfig(
 )
 from fastapi.middleware.cors import CORSMiddleware
 
-from routes import projects, pipeline, assets, live
+from routes import projects, pipeline, assets, live, image_nodes
 from config import MOCK_MODE
 
 # Suppress noisy access logs for frequent polling endpoints
@@ -42,6 +42,7 @@ app.include_router(projects.router)
 app.include_router(pipeline.router)
 app.include_router(assets.router)
 app.include_router(live.router)
+app.include_router(image_nodes.router)
 
 
 @app.get("/api/health")
