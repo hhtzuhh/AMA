@@ -48,6 +48,23 @@ export interface LiveNodeData {
   label: string
 }
 
+export interface Shot {
+  prompt: string      // narration prose (also used as image caption)
+  image_url: string
+  nar_url?: string    // active audio asset for this shot
+}
+
+export interface ImageStoryNodeData {
+  id: string
+  label: string
+  story_prompt: string        // user's input prompt (renamed from story_text)
+  character_refs: string[]   // char slugs → refs/{slug}_ref.png
+  background_refs: string[]  // relative asset URLs (library/, refs/, etc.)
+  ken_burns: boolean
+  num_shots: number
+  shots: Shot[]
+}
+
 export interface StoryData {
   title: string
   summary: string
@@ -56,6 +73,7 @@ export interface StoryData {
   pages: Page[]
   edges?: StoryEdge[]
   live_nodes?: LiveNodeData[]
+  image_nodes?: ImageStoryNodeData[]
 }
 
 export interface SpriteVersion {

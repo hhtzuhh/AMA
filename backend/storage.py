@@ -57,10 +57,12 @@ def update_pipeline_status(project_id: str, step: str, status: str) -> None:
 
 def save_story_data(project_id: str, data: dict) -> None:
     path = project_dir(project_id) / "story_data.json"
-    # Preserve existing edges if new data doesn't include them
-    if path.exists() and "edges" not in data:
+    # Preserve existing edges, live_nodes, image_nodes if new data doesn't include them
+    if path.exists():
         existing = json.loads(path.read_text())
-        data["edges"] = existing.get("edges", [])
+        for key in ("edges", "live_nodes", "image_nodes"):
+            if key not in data:
+                data[key] = existing.get(key, [])
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
     # Initialize page and character tracking in meta
     _init_asset_tracking(project_id, data)
@@ -562,6 +564,149 @@ def delete_live_node(project_id: str, node_id: str) -> None:
         if str(e.get("from")) != node_id and str(e.get("to")) != node_id
     ]
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def get_image_nodes(project_id: str) -> list:
+    data = get_story_data(project_id)
+    return data.get("image_nodes", []) if data else []
+
+
+def save_image_node(project_id: str, node: dict) -> dict:
+    path = project_dir(project_id) / "story_data.json"
+    data = json.loads(path.read_text())
+    nodes = data.setdefault("image_nodes", [])
+    idx = next((i for i, n in enumerate(nodes) if n["id"] == node["id"]), None)
+    if idx is not None:
+        nodes[idx] = node
+    else:
+        nodes.append(node)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    return node
+
+
+def delete_image_node(project_id: str, node_id: str) -> None:
+    path = project_dir(project_id) / "story_data.json"
+    data = json.loads(path.read_text())
+    data["image_nodes"] = [n for n in data.get("image_nodes", []) if n["id"] != node_id]
+    data["edges"] = [
+        e for e in data.get("edges", [])
+        if str(e.get("from")) != node_id and str(e.get("to")) != node_id
+    ]
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def update_image_node_shots(project_id: str, node_id: str, shots: list) -> None:
+    """Set the active shots list on an image node in story_data.json."""
+    path = project_dir(project_id) / "story_data.json"
+    data = json.loads(path.read_text())
+    for n in data.get("image_nodes", []):
+        if n["id"] == node_id:
+            n["shots"] = shots
+            break
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def record_image_shot(project_id: str, node_id: str, shot_index: int, url: str, prompt: str = "") -> None:
+    """Append a versioned shot to meta.json for an image node."""
+    pdir = project_dir(project_id)
+    meta = _read_meta(pdir)
+    img_nodes = meta.setdefault("image_nodes", {})
+    node_entry = img_nodes.setdefault(node_id, {"shots": {}})
+    shot_entry = node_entry["shots"].setdefault(str(shot_index), {"versions": []})
+    shot_entry["versions"].append({
+        "url": url,
+        "prompt": prompt,
+        "created_at": datetime.utcnow().isoformat(),
+    })
+    _write_meta(pdir, meta)
+
+
+def set_image_shot_version(project_id: str, node_id: str, shot_index: int, version: int) -> None:
+    """Set the active version for a specific shot and update story_data.json."""
+    pdir = project_dir(project_id)
+    meta = _read_meta(pdir)
+    versions = meta.get("image_nodes", {}).get(node_id, {}).get("shots", {}).get(str(shot_index), {}).get("versions", [])
+    if not versions or not (0 <= version < len(versions)):
+        return
+    entry = versions[version]
+    # Update story_data.json shots[shot_index].image_url
+    path = project_dir(project_id) / "story_data.json"
+    data = json.loads(path.read_text())
+    for n in data.get("image_nodes", []):
+        if n["id"] == node_id:
+            shots = n.get("shots", [])
+            if 0 <= shot_index < len(shots):
+                shots[shot_index]["image_url"] = entry["url"]
+                shots[shot_index]["prompt"] = entry.get("prompt", shots[shot_index].get("prompt", ""))
+            break
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def set_image_shot_url(project_id: str, node_id: str, shot_index: int, image_url: str) -> None:
+    """Set a shot's active image_url to any asset URL (1-based shot_index)."""
+    path = project_dir(project_id) / "story_data.json"
+    data = json.loads(path.read_text())
+    for n in data.get("image_nodes", []):
+        if n["id"] == node_id:
+            shots = n.get("shots", [])
+            idx = shot_index - 1  # convert 1-based to 0-based
+            if 0 <= idx < len(shots):
+                shots[idx]["image_url"] = image_url
+            break
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def set_image_shot_text(project_id: str, node_id: str, shot_index: int, text: str) -> None:
+    """Update the narration text (prompt) for a shot in story_data.json (1-based shot_index)."""
+    path = project_dir(project_id) / "story_data.json"
+    if not path.exists():
+        return
+    data = json.loads(path.read_text())
+    for n in data.get("image_nodes", []):
+        if n["id"] == node_id:
+            shots = n.get("shots", [])
+            idx = shot_index - 1  # 1-based to 0-based
+            if 0 <= idx < len(shots):
+                shots[idx]["prompt"] = text
+            break
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def record_image_shot_audio(project_id: str, node_id: str, shot_index: int, url: str) -> None:
+    """Append a versioned audio file to meta.json for an image node shot and set active nar_url."""
+    pdir = project_dir(project_id)
+    meta = _read_meta(pdir)
+    img_nodes = meta.setdefault("image_nodes", {})
+    node_entry = img_nodes.setdefault(node_id, {"shots": {}})
+    shot_entry = node_entry["shots"].setdefault(str(shot_index), {"versions": [], "audio_versions": []})
+    shot_entry.setdefault("audio_versions", []).append({
+        "url": url,
+        "created_at": datetime.utcnow().isoformat(),
+    })
+    _write_meta(pdir, meta)
+    # Set as active nar_url in story_data.json (0-based)
+    set_image_shot_nar_url(project_id, node_id, shot_index - 1, url)
+
+
+def set_image_shot_nar_url(project_id: str, node_id: str, shot_index: int, url: str) -> None:
+    """Set a shot's active nar_url in story_data.json (0-based shot_index)."""
+    path = project_dir(project_id) / "story_data.json"
+    if not path.exists():
+        return
+    data = json.loads(path.read_text())
+    for n in data.get("image_nodes", []):
+        if n["id"] == node_id:
+            shots = n.get("shots", [])
+            if 0 <= shot_index < len(shots):
+                shots[shot_index]["nar_url"] = url
+            break
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def get_image_nodes_manifest(project_id: str) -> dict:
+    """Return image node shot version history from meta.json."""
+    meta = _read_meta(project_dir(project_id))
+    return meta.get("image_nodes", {})
 
 
 def _init_asset_tracking(project_id: str, story_data: dict) -> None:

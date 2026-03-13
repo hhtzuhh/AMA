@@ -10,7 +10,7 @@ from datetime import datetime
 
 log = logging.getLogger("pipeline.assets")
 
-from config import MOCK_MODE, TEST_ASSETS_DIR, assets_dir, MODEL_SPRITE
+from config import MOCK_MODE, TEST_ASSETS_DIR, assets_dir, MODEL_SPRITE, make_genai_client
 from jobs import Job
 import storage
 
@@ -118,7 +118,6 @@ async def _mock_sprite(job: Job, project_id: str, char_slug_val: str, state: str
 
 async def _real_sprite(job: Job, project_id: str, char_slug_val: str, state: str) -> None:
     import io, os
-    from google import genai
     from google.genai import types
     from PIL import Image
     from rembg import remove, new_session
@@ -135,7 +134,7 @@ async def _real_sprite(job: Job, project_id: str, char_slug_val: str, state: str
     if not character:
         raise ValueError(f"Character '{char_slug_val}' not found in story data")
 
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    client = make_genai_client()
     rembg_session = new_session("isnet-anime")
     dst = assets_dir(project_id)
     refs_dir = dst / "refs"
@@ -248,7 +247,7 @@ async def _real(job: Job, project_id: str) -> None:
     if not story:
         raise ValueError("Run story understanding first")
 
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    client = make_genai_client()
     rembg_session = new_session("isnet-anime")
     dst = assets_dir(project_id)
     refs_dir = dst / "refs"

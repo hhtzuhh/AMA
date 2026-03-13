@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import type { StoryData, StoryEdge, LiveNodeData } from '../types'
+import type { StoryData, StoryEdge, LiveNodeData, ImageStoryNodeData } from '../types'
 import BackgroundLayer from '../components/theater/BackgroundLayer'
 import SpriteLayer, { type SpriteEntry } from '../components/theater/SpriteLayer'
 import NarrationPlayer from '../components/theater/NarrationPlayer'
 import TheaterControls from '../components/theater/TheaterControls'
 import LiveSession from '../components/theater/LiveSession'
+import ImageStorySlideshow from '../components/theater/ImageStorySlideshow'
 
 const API = 'http://localhost:8000'
 
@@ -34,7 +35,24 @@ export default function TheaterPage() {
       setStoryData(story)
       setManifest(mani)
       setEdges(edgeData?.edges ?? [])
-      if (story?.pages?.length > 0) {
+      if (edgeData?.edges?.length > 0) {
+        // Find a node with no incoming edges (start node)
+        const targets = new Set(edgeData.edges.map((e: any) => String(e.to)))
+        const allIds = [
+          ...(story?.pages ?? []).map((p: any) => String(p.page)),
+          ...(story?.live_nodes ?? []).map((n: any) => n.id),
+          ...(story?.image_nodes ?? []).map((n: any) => n.id),
+        ]
+        const startId = allIds.find(id => !targets.has(id))
+        if (startId) {
+          const num = parseInt(startId)
+          setCurrentNodeId(isNaN(num) ? startId : num)
+        } else if (story?.pages?.length > 0) {
+          setCurrentNodeId(story.pages[0].page)
+        }
+      } else if (story?.image_nodes?.length > 0) {
+        setCurrentNodeId(story.image_nodes[0].id)
+      } else if (story?.pages?.length > 0) {
         setCurrentNodeId(story.pages[0].page)
       }
     })
@@ -56,11 +74,15 @@ export default function TheaterPage() {
     )
   }
 
-  const isLiveNode = typeof currentNodeId === 'string'
+  const isLiveNode = typeof currentNodeId === 'string' && String(currentNodeId).startsWith('live_')
+  const isImageNode = typeof currentNodeId === 'string' && String(currentNodeId).startsWith('img_')
   const liveNode: LiveNodeData | null = isLiveNode
     ? (storyData.live_nodes ?? []).find(n => n.id === currentNodeId) ?? null
     : null
-  const currentPage = !isLiveNode
+  const imageNode: ImageStoryNodeData | null = isImageNode
+    ? (storyData.image_nodes ?? []).find(n => n.id === currentNodeId) ?? null
+    : null
+  const currentPage = !isLiveNode && !isImageNode
     ? storyData.pages.find(p => p.page === (currentNodeId as number))!
     : null
 
@@ -81,7 +103,9 @@ export default function TheaterPage() {
   let spriteState = 'idle'
   let narUrl = ''
 
-  if (isLiveNode && liveNode) {
+  if (isImageNode) {
+    // Image story nodes render via ImageStorySlideshow — no bg/sprite needed here
+  } else if (isLiveNode && liveNode) {
     if (liveNode.bg_url) bgUrl = assetUrl(projectId!, liveNode.bg_url)
     if (liveNode.character) {
       charName = liveNode.character
@@ -144,46 +168,60 @@ export default function TheaterPage() {
   return (
     <div className="flex items-center justify-center h-screen bg-black overflow-hidden">
       <div ref={containerRef} className="relative overflow-hidden" style={{ width: canvasW, height: canvasH }}>
-        <BackgroundLayer src={bgUrl} />
-
-        {sprites.length > 0 && <SpriteLayer sprites={sprites} width={canvasW} height={canvasH} />}
-
-        {isLiveNode && liveNode ? (
-          <LiveSession
+        {isImageNode && imageNode ? (
+          <ImageStorySlideshow
+            key={`${currentNodeId}_${replayCount}`}
             projectId={projectId!}
-            node={liveNode}
-            onNavigate={(nid) => {
-              // node_id from AI could be "page_4" or "4" — normalize
-              const numId = parseInt(nid.replace('page_', ''))
-              goToNode(isNaN(numId) ? nid : numId)
+            node={imageNode}
+            onDone={() => {
+              setIsNarrating(false)
+              if (nextEdges.length === 1) {
+                const to = nextEdges[0].to
+                const num = typeof to === 'number' ? to : parseInt(String(to).replace('page_', ''))
+                goToNode(isNaN(num) ? to : num)
+              }
             }}
           />
         ) : (
-          currentPage && narUrl && (
-            <NarrationPlayer
-              src={narUrl}
-              triggerReplay={replayCount}
-              onPlay={() => setIsNarrating(true)}
-              onEnd={() => {
-                setIsNarrating(false)
-                // Auto-advance after narration if exactly one outgoing edge
-                if (nextEdges.length === 1) {
-                  const to = nextEdges[0].to
-                  const num = typeof to === 'number' ? to : parseInt(String(to).replace('page_', ''))
-                  goToNode(isNaN(num) ? to : num)
-                }
-              }}
-            />
-          )
+          <>
+            <BackgroundLayer src={bgUrl} />
+            {sprites.length > 0 && <SpriteLayer sprites={sprites} width={canvasW} height={canvasH} />}
+            {isLiveNode && liveNode ? (
+              <LiveSession
+                projectId={projectId!}
+                node={liveNode}
+                onNavigate={(nid) => {
+                  const numId = parseInt(nid.replace('page_', ''))
+                  goToNode(isNaN(numId) ? nid : numId)
+                }}
+              />
+            ) : (
+              currentPage && narUrl && (
+                <NarrationPlayer
+                  src={narUrl}
+                  triggerReplay={replayCount}
+                  onPlay={() => setIsNarrating(true)}
+                  onEnd={() => {
+                    setIsNarrating(false)
+                    if (nextEdges.length === 1) {
+                      const to = nextEdges[0].to
+                      const num = typeof to === 'number' ? to : parseInt(String(to).replace('page_', ''))
+                      goToNode(isNaN(num) ? to : num)
+                    }
+                  }}
+                />
+              )
+            )}
+          </>
         )}
 
         <TheaterControls
-          pageNum={isLiveNode ? `🎤 ${liveNode?.label ?? 'Live'}` : String(currentNodeId)}
-          totalPages={storyData.pages.length + (storyData.live_nodes?.length ?? 0)}
+          pageNum={isImageNode ? `🎨 ${imageNode?.label ?? 'Image Story'}` : isLiveNode ? `🎤 ${liveNode?.label ?? 'Live'}` : String(currentNodeId)}
+          totalPages={storyData.pages.length + (storyData.live_nodes?.length ?? 0) + (storyData.image_nodes?.length ?? 0)}
           charName={charName}
-          spriteState={isLiveNode ? 'idle' : spriteState}
+          spriteState={isLiveNode || isImageNode ? 'idle' : spriteState}
           isNarrating={isNarrating}
-          hasNarration={!isLiveNode && !!narUrl}
+          hasNarration={!isLiveNode && !isImageNode && !!narUrl}
           canGoPrev={prevEdges.length > 0}
           canGoNext={nextEdges.length > 0}
           onPrev={() => {

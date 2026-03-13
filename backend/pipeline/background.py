@@ -4,7 +4,7 @@ Pipeline Step 3: Background Scene Generation (linear, per page)
 import asyncio
 import logging
 
-from config import MOCK_MODE, TEST_ASSETS_DIR, assets_dir, MODEL_VIDEO, project_dir
+from config import MOCK_MODE, TEST_ASSETS_DIR, assets_dir, MODEL_VIDEO, project_dir, make_genai_client
 from jobs import Job
 import storage
 
@@ -155,7 +155,7 @@ async def _real_page(job: Job, project_id: str, page_num: int) -> None:
             f"Ambient environmental sound only. No music. No dialogue."
         )
 
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    client = make_genai_client()
     dst = assets_dir(project_id)
     (dst / "scenes").mkdir(parents=True, exist_ok=True)
 
@@ -302,7 +302,7 @@ async def _real(job: Job, project_id: str) -> None:
             f"Ambient environmental sound only. No music. No dialogue."
         )
 
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    client = make_genai_client()
     dst = assets_dir(project_id)
     (dst / "scenes").mkdir(parents=True, exist_ok=True)
     count = 0

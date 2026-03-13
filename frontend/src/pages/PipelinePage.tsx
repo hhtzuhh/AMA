@@ -6,13 +6,14 @@ import {
   type Node, type Edge, type Connection,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import type { StoryData, Character, LiveNodeData } from '../types'
+import type { StoryData, Character, LiveNodeData, ImageStoryNodeData } from '../types'
 import PageNode, { charSlug } from '../components/pipeline/PageNode'
 import LiveNode from '../components/pipeline/LiveNode'
+import ImageStoryNode from '../components/pipeline/ImageStoryNode'
 import NodePanel, { type StageInfo } from '../components/pipeline/NodePanel'
 import PipelineToolbar from '../components/pipeline/PipelineToolbar'
 
-const nodeTypes = { page: PageNode, live: LiveNode }
+const nodeTypes = { page: PageNode, live: LiveNode, image_story: ImageStoryNode }
 
 const PAGE_Y = 0
 const PAGES_PER_ROW = 10
@@ -31,6 +32,7 @@ type AnySelected =
   | { type: 'pipelineStage'; data: StageInfo }
   | { type: 'page'; data: { page: StoryData['pages'][0] } }
   | { type: 'live'; data: { node: LiveNodeData } }
+  | { type: 'image_story'; data: { node: ImageStoryNodeData } }
   | { type: 'edge'; data: { edgeId: string; label: string } }
 
 // "char/state" → list of page node IDs that use this sprite
@@ -66,7 +68,7 @@ export default function PipelinePage() {
   const savePositions = useCallback((currentNodes: Node[]) => {
     if (!projectId) return
     const pos: Record<string, { x: number; y: number }> = {}
-    currentNodes.forEach((n: Node) => { if (n.id.startsWith('page_') || n.id.startsWith('live_')) pos[n.id] = n.position })
+    currentNodes.forEach((n: Node) => { if (n.id.startsWith('page_') || n.id.startsWith('live_') || n.id.startsWith('img_')) pos[n.id] = n.position })
     fetch(`${API}/api/projects/${projectId}/positions`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -83,6 +85,15 @@ export default function PipelinePage() {
   }, [onNodesChange, savePositions, setNodes])
 
   const onBeforeDelete = useCallback(async ({ nodes: deletedNodes }: { nodes: Node[]; edges: Edge[] }) => {
+    // Handle image story node deletions
+    const imgNodes = deletedNodes.filter(n => n.id.startsWith('img_'))
+    for (const n of imgNodes) {
+      await fetch(`${API}/api/projects/${projectId}/image-nodes/${n.id}`, { method: 'DELETE' })
+      setEdges((prev: Edge[]) => prev.filter((e: Edge) => e.source !== n.id && e.target !== n.id))
+      if (selected?.type === 'image_story' && selected.data.node.id === n.id) setSelected(null)
+    }
+    if (imgNodes.length > 0 && deletedNodes.length === imgNodes.length) return true
+
     const pageNodes = deletedNodes.filter(n => n.id.startsWith('page_'))
     if (pageNodes.length === 0) return true  // nothing to guard
 
@@ -113,14 +124,14 @@ export default function PipelinePage() {
   const savePageEdges = useCallback((currentEdges: Edge[]) => {
     if (!projectId) return
     const allEdges = currentEdges
-      .filter(e => e.source.startsWith('page_') || e.source.startsWith('live_') ||
-                   e.target.startsWith('page_') || e.target.startsWith('live_'))
+      .filter(e => e.source.startsWith('page_') || e.source.startsWith('live_') || e.source.startsWith('img_') ||
+                   e.target.startsWith('page_') || e.target.startsWith('live_') || e.target.startsWith('img_'))
       .map(e => {
-        const fromIsLive = e.source.startsWith('live_')
-        const toIsLive = e.target.startsWith('live_')
+        const fromIsString = e.source.startsWith('live_') || e.source.startsWith('img_')
+        const toIsString = e.target.startsWith('live_') || e.target.startsWith('img_')
         return {
-          from: fromIsLive ? e.source : parseInt(e.source.replace('page_', '')),
-          to: toIsLive ? e.target : parseInt(e.target.replace('page_', '')),
+          from: fromIsString ? e.source : parseInt(e.source.replace('page_', '')),
+          to: toIsString ? e.target : parseInt(e.target.replace('page_', '')),
           label: (e.data as any)?.label ?? '',
         }
       })
@@ -370,6 +381,20 @@ export default function PipelinePage() {
       })
     })
 
+    // Add image story nodes from story data
+    ;(data.image_nodes ?? []).forEach((imgNode, ii) => {
+      const imgId = imgNode.id
+      allNodes.push({
+        id: imgId,
+        type: 'image_story',
+        position: savedPositions[imgId] ?? { x: 200 + ii * (PAGE_GAP_X + 20), y: -220 },
+        data: {
+          node: imgNode,
+          onClick: () => setSelected({ type: 'image_story', data: { node: imgNode } }),
+        },
+      })
+    })
+
     setNodeStatuses(s => ({ ...s, stage_story: 'Generated' }))
     setNodes(allNodes)
     setEdges([])
@@ -413,6 +438,30 @@ export default function PipelinePage() {
       },
     }])
     setSelected({ type: 'live', data: { node } })
+  }
+
+  async function createImageStoryNode() {
+    if (!projectId) return
+    const newId = `img_${Date.now()}`
+    const node: ImageStoryNodeData = {
+      id: newId, label: 'Image Story', story_prompt: '',
+      character_refs: [], background_refs: [], ken_burns: false, num_shots: 3, shots: [],
+    }
+    await fetch(`${API}/api/projects/${projectId}/image-nodes/${newId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(node),
+    })
+    setNodes((prev: Node[]) => [...prev, {
+      id: newId,
+      type: 'image_story',
+      position: { x: 200, y: -220 },
+      data: {
+        node,
+        onClick: () => setSelected({ type: 'image_story', data: { node } }),
+      },
+    }])
+    setSelected({ type: 'image_story', data: { node } })
   }
 
   function handlePageDeleted(pageNum: number) {
@@ -482,10 +531,10 @@ export default function PipelinePage() {
               }).catch(() => {})
             }
             const rfEdges: Edge[] = edgesToUse.map((e: any) => {
-              const fromIsLive = typeof e.from === 'string' && e.from.startsWith('live_')
-              const toIsLive = typeof e.to === 'string' && e.to.startsWith('live_')
-              const src = fromIsLive ? e.from : `page_${e.from}`
-              const tgt = toIsLive ? e.to : `page_${e.to}`
+              const fromIsStr = typeof e.from === 'string' && (e.from.startsWith('live_') || e.from.startsWith('img_'))
+              const toIsStr = typeof e.to === 'string' && (e.to.startsWith('live_') || e.to.startsWith('img_'))
+              const src = fromIsStr ? e.from : `page_${e.from}`
+              const tgt = toIsStr ? e.to : `page_${e.to}`
               return {
                 id: `e_${src}_${tgt}`,
                 source: src,
@@ -512,8 +561,8 @@ export default function PipelinePage() {
 
   // Compute per-node display data
   const nodesWithStatus = nodes.map((n: Node) => {
-    // Live nodes don't need asset status computation
-    if (n.type === 'live') return n
+    // Live and image story nodes don't need asset status computation
+    if (n.type === 'live' || n.type === 'image_story') return n
 
     const page = (n.data as any).page
     // Per-character sprite status for this page
@@ -581,6 +630,12 @@ export default function PipelinePage() {
               >
                 + Live Node
               </button>
+              <button
+                onClick={createImageStoryNode}
+                style={{ background: '#1a0e00', border: '1px solid #b45309', color: '#fbbf24', borderRadius: 6, padding: '4px 12px', fontSize: 12, cursor: 'pointer' }}
+              >
+                + Image Story
+              </button>
             </div>
           </Panel>
         </ReactFlow>
@@ -609,6 +664,19 @@ export default function PipelinePage() {
               : n
           ))
           setSelected({ type: 'live', data: { node } })
+        }}
+        onImageNodeDeleted={(nodeId: string) => {
+          setNodes((prev: Node[]) => prev.filter((n: Node) => n.id !== nodeId))
+          setEdges((prev: Edge[]) => prev.filter((e: Edge) => e.source !== nodeId && e.target !== nodeId))
+          setSelected(null)
+        }}
+        onImageNodeUpdated={(node: ImageStoryNodeData) => {
+          setNodes((prev: Node[]) => prev.map((n: Node) =>
+            n.id === node.id
+              ? { ...n, data: { ...n.data, node, onClick: () => setSelected({ type: 'image_story', data: { node } }) } }
+              : n
+          ))
+          setSelected({ type: 'image_story', data: { node } })
         }}
         onEdgeLabelSaved={(edgeId, label) => {
           setEdges((prev: Edge[]) => prev.map((e: Edge) =>
