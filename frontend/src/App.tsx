@@ -2,6 +2,9 @@ import { BrowserRouter, Routes, Route, NavLink, useParams } from 'react-router-d
 import ProjectsPage from './pages/ProjectsPage'
 import PipelinePage from './pages/PipelinePage'
 import TheaterPage from './pages/TheaterPage'
+import CameraPage from './pages/CameraPage'
+import CameraViewPage from './pages/CameraViewPage'
+import CameraLandingPage from './pages/CameraLandingPage'
 
 export default function App() {
   return (
@@ -10,6 +13,10 @@ export default function App() {
         <Route path="/" element={<ProjectsPage />} />
         <Route path="/pipeline/:projectId" element={<ProjectLayout><PipelinePage /></ProjectLayout>} />
         <Route path="/theater/:projectId" element={<ProjectLayout><TheaterPage /></ProjectLayout>} />
+        {/* Camera: no nav bar — full screen for phone/display */}
+        <Route path="/camera" element={<CameraLandingPage />} />
+        <Route path="/camera/:projectId" element={<CameraPage />} />
+        <Route path="/camera-view/:projectId" element={<CameraViewPage />} />
       </Routes>
     </BrowserRouter>
   )

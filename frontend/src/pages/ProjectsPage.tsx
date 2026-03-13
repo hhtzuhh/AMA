@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-const API = 'http://localhost:8000'
+import { API_URL as API } from '../config'
 
 interface Project {
   project_id: string

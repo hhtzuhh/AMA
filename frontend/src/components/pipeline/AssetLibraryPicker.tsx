@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-const API = 'http://localhost:8000'
+import { API_URL as API } from '../../config'
 
 type Category = 'library' | 'sprites' | 'scenes' | 'audio' | 'refs' | 'image_nodes'
 

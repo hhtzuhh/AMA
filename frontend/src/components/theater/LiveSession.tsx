@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { LiveNodeData } from '../../types'
+import { WS_URL } from '../../config'
 
 interface Props {
   projectId: string
@@ -7,7 +8,7 @@ interface Props {
   onNavigate: (nodeId: string) => void
 }
 
-const API_WS = 'ws://localhost:8000'
+const API_WS = WS_URL
 // Output from Gemini Live is 24kHz PCM
 const OUTPUT_SAMPLE_RATE = 24000
 

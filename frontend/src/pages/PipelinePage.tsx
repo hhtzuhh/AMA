@@ -12,6 +12,7 @@ import LiveNode from '../components/pipeline/LiveNode'
 import ImageStoryNode from '../components/pipeline/ImageStoryNode'
 import NodePanel, { type StageInfo } from '../components/pipeline/NodePanel'
 import PipelineToolbar from '../components/pipeline/PipelineToolbar'
+import { API_URL as API } from '../config'
 
 const nodeTypes = { page: PageNode, live: LiveNode, image_story: ImageStoryNode }
 
@@ -19,7 +20,6 @@ const PAGE_Y = 0
 const PAGES_PER_ROW = 10
 const PAGE_GAP_X = 185
 const PAGE_GAP_Y = 220
-const API = 'http://localhost:8000'
 
 const STAGES: Array<{ id: string; step: string; label: string; script: string; inputLabel: string; outputLabel: string; description: string }> = [
   { id: 'stage_story', step: 'story', label: 'Story Understanding', script: 'test_story_understanding.py', inputLabel: 'PDF', outputLabel: 'story_data.json', description: 'Reads the book PDF and extracts characters, pages, moods, settings, and character states using Gemini.' },

@@ -4,7 +4,7 @@ import type { Page, Character, LiveNodeData, ImageStoryNodeData } from '../../ty
 import { charSlug } from './PageNode'
 import { AssetLibraryPicker } from './AssetLibraryPicker'
 
-const API = 'http://localhost:8000'
+import { API_URL as API } from '../../config'
 
 export interface StageInfo {
   label: string; script: string; inputLabel: string; outputLabel: string; description: string

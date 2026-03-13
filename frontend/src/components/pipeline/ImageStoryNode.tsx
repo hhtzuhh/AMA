@@ -1,5 +1,6 @@
 import { Handle, Position } from '@xyflow/react'
 import type { ImageStoryNodeData } from '../../types'
+import { API_URL as API } from '../../config'
 
 interface Props {
   data: {
@@ -37,7 +38,7 @@ export default function ImageStoryNode({ data, selected }: Props) {
           background: '#0f0800', border: '1px solid #374151',
         }}>
           <img
-            src={`http://localhost:8000/api/projects/${_extractProjectId()}/assets/${firstShot}`}
+            src={`${API}/api/projects/${_extractProjectId()}/assets/${firstShot}`}
             alt="shot"
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             onError={e => { (e.target as HTMLImageElement).style.opacity = '0.15' }}

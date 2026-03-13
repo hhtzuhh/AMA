@@ -7,7 +7,7 @@ logging.basicConfig(
 )
 from fastapi.middleware.cors import CORSMiddleware
 
-from routes import projects, pipeline, assets, live, image_nodes
+from routes import projects, pipeline, assets, live, image_nodes, camera
 from config import MOCK_MODE
 
 # Suppress noisy access logs for frequent polling endpoints
@@ -31,9 +31,12 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
 app = FastAPI(title="AMA API")
 
+import os
+_extra_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+_dev_mode = os.getenv("ENV", "development") != "production"
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["*"] if _dev_mode else ["http://localhost:5173", "http://localhost:4173", *_extra_origins],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -43,6 +46,7 @@ app.include_router(pipeline.router)
 app.include_router(assets.router)
 app.include_router(live.router)
 app.include_router(image_nodes.router)
+app.include_router(camera.router)
 
 
 @app.get("/api/health")

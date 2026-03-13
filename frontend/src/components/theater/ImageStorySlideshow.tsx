@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ImageStoryNodeData } from '../../types'
 
-const API = 'http://localhost:8000'
+import { API_URL as API } from '../../config'
 const FALLBACK_DURATION_MS = 5000   // used when no audio or metadata fails to load
 
 interface Props {

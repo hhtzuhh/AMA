@@ -8,7 +8,7 @@ import TheaterControls from '../components/theater/TheaterControls'
 import LiveSession from '../components/theater/LiveSession'
 import ImageStorySlideshow from '../components/theater/ImageStorySlideshow'
 
-const API = 'http://localhost:8000'
+import { API_URL as API } from '../config'
 
 function assetUrl(projectId: string, path: string): string {
   return `${API}/api/projects/${projectId}/assets/${path}`
