@@ -10,13 +10,14 @@ from datetime import datetime
 
 log = logging.getLogger("pipeline.assets")
 
-from config import MOCK_MODE, TEST_ASSETS_DIR, assets_dir, MODEL_SPRITE, make_genai_client
+import os
+from config import MOCK_MODE, TEST_ASSETS_DIR, assets_dir, MODEL_SPRITE
 from jobs import Job
 import storage
 
 
 def char_slug(name: str) -> str:
-    return re.sub(r'\s+', '_', name.strip().lower())
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
 
 async def run(job: Job, project_id: str) -> None:
@@ -117,7 +118,8 @@ async def _mock_sprite(job: Job, project_id: str, char_slug_val: str, state: str
 
 
 async def _real_sprite(job: Job, project_id: str, char_slug_val: str, state: str) -> None:
-    import io, os
+    import io
+    from google import genai as _genai
     from google.genai import types
     from PIL import Image
     from rembg import remove, new_session
@@ -134,7 +136,7 @@ async def _real_sprite(job: Job, project_id: str, char_slug_val: str, state: str
     if not character:
         raise ValueError(f"Character '{char_slug_val}' not found in story data")
 
-    client = make_genai_client()
+    client = _genai.Client(api_key=os.getenv("GEMINI_API_KEY"), vertexai=False)
     rembg_session = new_session("isnet-anime")
     dst = assets_dir(project_id)
     refs_dir = dst / "refs"
@@ -172,11 +174,10 @@ async def _real_sprite(job: Job, project_id: str, char_slug_val: str, state: str
     ref_image = Image.open(ref_path)
 
     first_prompt = (
-        f"I am providing a reference image from a children's picture book. "
-        f"This character is {character['name']}: {character['visual_description']}. "
-        f"Generate a clean full-body sprite of this character in an idle, neutral standing pose. "
-        f"Match the original children's book illustration style exactly. "
-        f"Solid bright green background (#00FF00). No shadows. Full body visible."
+        f"The provided image is the visual reference for {character['name']}. "
+        f"Use it as the exact authority for this character's art style, proportions, colors, and design — do not invent a new style. "
+        f"Generate a clean full-body sprite of this character in an idle, neutral standing pose, faithfully matching the reference. "
+        f"Solid bright green background (#00FF00). No shadows. Full body visible. Transparent-ready composition."
     )
 
     job.current = {"character": char_slug_val, "state": "idle"}
@@ -211,7 +212,7 @@ async def _real_sprite(job: Job, project_id: str, char_slug_val: str, state: str
         job.progress = f"Generating {char_slug_val}/{state}..."
 
         state_prompt = (
-            f"Keep the exact same character ({character['name']}) and illustration style. "
+            f"Same character ({character['name']}), same art style and design as the reference. "
             f"Now show them in a '{state}' pose/expression. "
             f"Solid bright green background (#00FF00). No shadows. Full body visible."
         )
@@ -237,7 +238,7 @@ async def _real_sprite(job: Job, project_id: str, char_slug_val: str, state: str
 
 
 async def _real(job: Job, project_id: str) -> None:
-    import io, os
+    import io
     from google import genai
     from google.genai import types
     from PIL import Image
@@ -247,7 +248,7 @@ async def _real(job: Job, project_id: str) -> None:
     if not story:
         raise ValueError("Run story understanding first")
 
-    client = make_genai_client()
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"), vertexai=False)
     rembg_session = new_session("isnet-anime")
     dst = assets_dir(project_id)
     refs_dir = dst / "refs"
@@ -290,13 +291,12 @@ async def _real(job: Job, project_id: str) -> None:
 
         ref_image = Image.open(ref_path)
 
-        # Build idle first prompt
+        # Build idle first prompt — style comes entirely from the ref image, not text
         first_prompt = (
-            f"I am providing a reference image from a children's picture book. "
-            f"This character is {character['name']}: {character['visual_description']}. "
-            f"Generate a clean full-body sprite of this character in an idle, neutral standing pose. "
-            f"Match the original children's book illustration style exactly. "
-            f"Solid bright green background (#00FF00). No shadows. Full body visible."
+            f"The provided image is the visual reference for {character['name']}. "
+            f"Use it as the exact authority for this character's art style, proportions, colors, and design — do not invent a new style. "
+            f"Generate a clean full-body sprite of this character in an idle, neutral standing pose, faithfully matching the reference. "
+            f"Solid bright green background (#00FF00). No shadows. Full body visible. Transparent-ready composition."
         )
 
         job.current = {"character": slug, "state": "idle"}
@@ -341,7 +341,7 @@ async def _real(job: Job, project_id: str) -> None:
             log.info("Generating sprite %s/%s...", slug, state)
 
             state_prompt = (
-                f"Keep the exact same character ({character['name']}) and illustration style. "
+                f"Same character ({character['name']}), same art style and design as the reference. "
                 f"Now show them in a '{state}' pose/expression. "
                 f"Solid bright green background (#00FF00). No shadows. Full body visible."
             )

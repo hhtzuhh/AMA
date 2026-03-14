@@ -43,6 +43,7 @@ export interface StoryEdge {
 export interface LiveNodeData {
   id: string
   character: string
+  character_sprite?: string  // sprite state to display (e.g. "idle", "talking")
   bg_url: string
   system_prompt: string
   label: string

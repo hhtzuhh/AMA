@@ -65,9 +65,19 @@ async def run(job: Job, project_id: str, node_id: str) -> None:
     job.progress = "Loading reference images..."
 
     # --- Load character reference images ---
+    import re as _re
+    def _normalize_slug(s: str) -> str:
+        return _re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
+
     char_parts: list = []
+    seen_slugs: set = set()
     for slug in char_refs:
-        ref_path = adir / "refs" / f"{slug}_ref.png"
+        normalized = _normalize_slug(slug)
+        if normalized in seen_slugs:
+            log.info("Skipping duplicate char ref slug: %s", slug)
+            continue
+        seen_slugs.add(normalized)
+        ref_path = adir / "refs" / f"{normalized}_ref.png"
         if ref_path.exists():
             char_parts.append(types.Part.from_bytes(
                 data=ref_path.read_bytes(),

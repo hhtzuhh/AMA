@@ -465,7 +465,8 @@ Respond with ONLY valid JSON:
     except Exception as e:
         return {"error": f"Character planning failed: {e}"}
 
-    slug = _char_slug(body.name)
+    final_name = char_data.get("name", body.name)
+    slug = _char_slug(final_name)
 
     # Save character to story_data.json
     story_path = project_dir(project_id) / "story_data.json"
@@ -475,9 +476,9 @@ Respond with ONLY valid JSON:
         story = {"characters": []}
 
     existing_names = {c.get("name") for c in story.get("characters", [])}
-    if body.name not in existing_names:
+    if final_name not in existing_names:
         story.setdefault("characters", []).append({
-            "name": char_data.get("name", body.name),
+            "name": final_name,
             "role": char_data.get("role", "Supporting"),
             "personality": char_data.get("personality", ""),
             "speech_style": char_data.get("speech_style", ""),
@@ -537,7 +538,7 @@ Full body visible, centered. No other characters. No text overlays."""
                 log.info("[studio] created char ref: %s", ref_path)
                 return {
                     "slug": slug,
-                    "name": body.name,
+                    "name": final_name,
                     "character": char_data,
                     "ref_url": f"refs/{slug}_ref.png",
                 }

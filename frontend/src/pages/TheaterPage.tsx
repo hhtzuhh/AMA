@@ -119,23 +119,25 @@ export default function TheaterPage() {
     if (dreamNode.bg_url) bgUrl = assetUrl(projectId!, dreamNode.bg_url)
     if (dreamNode.character) {
       charName = dreamNode.character
-      const slug = charName.toLowerCase().replace(/\s+/g, '_')
+      const slug = charName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
       const charManifest = (manifest as any)?.characters?.[slug]
       const stateEntry = charManifest?.sprites?.['idle']
       const versionUrl = stateEntry?.versions?.length > 0
-        ? stateEntry.versions[stateEntry.current ?? 0]?.url : null
+        ? stateEntry.versions[stateEntry.current ?? stateEntry.versions.length - 1]?.url : null
       if (versionUrl) sprites = [{ url: assetUrl(projectId!, versionUrl as string), state: 'idle' }]
     }
   } else if (isLiveNode && liveNode) {
     if (liveNode.bg_url) bgUrl = assetUrl(projectId!, liveNode.bg_url)
     if (liveNode.character) {
       charName = liveNode.character
-      const slug = charName.toLowerCase().replace(/\s+/g, '_')
+      const slug = charName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+      const spriteState = liveNode.character_sprite || 'idle'
       const charManifest = (manifest as any)?.characters?.[slug]
-      const stateEntry = charManifest?.sprites?.['idle']
+      const stateEntry = charManifest?.sprites?.[spriteState]
+        ?? charManifest?.sprites?.['idle']  // fallback to idle if selected state has no sprites
       const versionUrl = stateEntry?.versions?.length > 0
-        ? stateEntry.versions[stateEntry.current ?? 0]?.url : null
-      if (versionUrl) sprites = [{ url: assetUrl(projectId!, versionUrl as string), state: 'idle' }]
+        ? stateEntry.versions[stateEntry.current ?? stateEntry.versions.length - 1]?.url : null
+      if (versionUrl) sprites = [{ url: assetUrl(projectId!, versionUrl as string), state: spriteState }]
     }
   } else if (currentPage) {
     const pageManifest = (manifest as any)?.pages?.[String(currentNodeId)]

@@ -507,6 +507,15 @@ export default function PipelinePage() {
     setSelected(null)
   }
 
+  async function reloadCharacters() {
+    if (!projectId) return
+    const r = await fetch(`${API}/api/projects/${projectId}/story`)
+    if (r.ok) {
+      const data = await r.json()
+      setStoryCharacters(data.characters ?? [])
+    }
+  }
+
   async function handlePageUpdated() {
     if (!projectId) return
     const [r, posRes] = await Promise.all([
@@ -766,6 +775,7 @@ export default function PipelinePage() {
           ))
           setSelected({ type: 'dream', data: { node } })
         }}
+        onCharactersReloaded={reloadCharacters}
         onEdgeLabelSaved={(edgeId, label) => {
           setEdges((prev: Edge[]) => prev.map((e: Edge) =>
             e.id === edgeId ? { ...e, label: label || undefined, data: { ...e.data, label } } : e

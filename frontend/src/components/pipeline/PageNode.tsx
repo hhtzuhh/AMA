@@ -5,7 +5,7 @@ import type { Page } from '../../types'
 
 
 export function charSlug(name: string) {
-  return name.toLowerCase().replace(/\s+/g, '_')
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
 }
 
 interface Props {

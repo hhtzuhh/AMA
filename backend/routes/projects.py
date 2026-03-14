@@ -318,6 +318,7 @@ def save_edges(project_id: str, body: EdgesBody):
 class LiveNodeBody(BaseModel):
     id: str
     character: str = ""
+    character_sprite: str = ""
     bg_url: str = ""
     system_prompt: str = ""
     label: str = "Live Interaction"
@@ -346,6 +347,74 @@ def remove_live_node(project_id: str, node_id: str):
         raise HTTPException(404, "Project not found")
     storage.delete_live_node(project_id, node_id)
     return {"ok": True}
+
+
+class GenerateBgBody(BaseModel):
+    prompt: str
+
+
+@router.post("/{project_id}/live-nodes/{node_id}/generate-background")
+async def generate_live_node_background(project_id: str, node_id: str, body: GenerateBgBody):
+    """Generate a looping background video for a live node using Veo."""
+    import asyncio, os, logging
+    from google import genai
+    from google.genai import types
+    from config import MODEL_VIDEO, assets_dir, make_genai_client
+    import jobs as jobs_module
+
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+
+    job = jobs_module.create_job(project_id, f"live_bg_{node_id}")
+
+    async def _fn(j):
+        log = logging.getLogger("pipeline.live_bg")
+        client = make_genai_client()
+        dst = assets_dir(project_id)
+        (dst / "scenes").mkdir(parents=True, exist_ok=True)
+
+        veo_prompt = (
+            f"Static fixed camera angle — absolutely no camera movement, no pan, no zoom, no dolly. "
+            f"{body.prompt}. "
+            f"Only natural environmental elements animate — leaves, water, light, shadows. "
+            f"No text, words, letters, or captions. Ambient environmental sound only."
+        )
+
+        j.progress = "Submitting to Veo..."
+        operation = await asyncio.to_thread(
+            client.models.generate_videos,
+            model=MODEL_VIDEO,
+            prompt=veo_prompt,
+            config=types.GenerateVideosConfig(aspect_ratio="16:9", duration_seconds=8),
+        )
+
+        j.progress = "Waiting for Veo..."
+        while not operation.done:
+            await asyncio.sleep(15)
+            operation = await asyncio.to_thread(client.operations.get, operation)
+
+        if not (operation.response and operation.response.generated_videos):
+            raise RuntimeError("Veo returned no videos")
+        video = operation.response.generated_videos[0]
+        existing = list((dst / "scenes").glob(f"live_{node_id}_bg_v*.mp4"))
+        version = len(existing) + 1
+        rel_url = f"scenes/live_{node_id}_bg_v{version}.mp4"
+        out_path = dst / rel_url
+        video.video.save(str(out_path))
+
+        # Auto-save bg_url on the live node
+        live_nodes = storage.get_live_nodes(project_id)
+        node = next((n for n in live_nodes if n["id"] == node_id), None)
+        if node:
+            node["bg_url"] = rel_url
+            storage.save_live_node(project_id, node)
+
+        j.result = {"bg_url": rel_url}
+        j.progress = "Done"
+        log.info("Live node %s background generated: %s", node_id, rel_url)
+
+    await jobs_module.run_job(job, _fn)
+    return {"job_id": job.job_id}
 
 
 class DreamNodeBody(BaseModel):
