@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import type { Page, Character, LiveNodeData, ImageStoryNodeData } from '../../types'
+import type { Page, Character, LiveNodeData, ImageStoryNodeData, DreamNodeData } from '../../types'
 import { charSlug } from './PageNode'
 import { AssetLibraryPicker } from './AssetLibraryPicker'
 
@@ -15,6 +15,7 @@ type SelectedNode =
   | { type: 'page'; data: { page: Page } }
   | { type: 'live'; data: { node: LiveNodeData } }
   | { type: 'image_story'; data: { node: ImageStoryNodeData } }
+  | { type: 'dream'; data: { node: DreamNodeData } }
   | { type: 'edge'; data: { edgeId: string; label: string } }
 
 interface Props {
@@ -33,10 +34,12 @@ interface Props {
   onLiveNodeUpdated?: (node: LiveNodeData) => void
   onImageNodeDeleted?: (nodeId: string) => void
   onImageNodeUpdated?: (node: ImageStoryNodeData) => void
+  onDreamNodeDeleted?: (nodeId: string) => void
+  onDreamNodeUpdated?: (node: DreamNodeData) => void
   onEdgeLabelSaved?: (edgeId: string, label: string) => void
 }
 
-export default function NodePanel({ selected, onClose, manifest, completedSprites, doneBackgrounds, doneNarrations, onManifestChange, onPageDeleted, onPageUpdated, characters, onLiveNodeDeleted, onLiveNodeUpdated, onImageNodeDeleted, onImageNodeUpdated, onEdgeLabelSaved }: Props) {
+export default function NodePanel({ selected, onClose, manifest, completedSprites, doneBackgrounds, doneNarrations, onManifestChange, onPageDeleted, onPageUpdated, characters, onLiveNodeDeleted, onLiveNodeUpdated, onImageNodeDeleted, onImageNodeUpdated, onDreamNodeDeleted, onDreamNodeUpdated, onEdgeLabelSaved }: Props) {
   const { projectId } = useParams<{ projectId: string }>()
 
   function assetUrl(path: string) {
@@ -116,6 +119,7 @@ export default function NodePanel({ selected, onClose, manifest, completedSprite
       )}
       {selected.type === 'live' && (
         <LiveNodePanel
+          key={selected.data.node.id}
           node={selected.data.node}
           projectId={projectId!}
           characters={characters}
@@ -125,11 +129,22 @@ export default function NodePanel({ selected, onClose, manifest, completedSprite
       )}
       {selected.type === 'image_story' && (
         <ImageStoryNodePanel
+          key={selected.data.node.id}
           node={selected.data.node}
           projectId={projectId!}
           characters={characters}
           onDeleted={onImageNodeDeleted ?? (() => {})}
           onUpdated={onImageNodeUpdated ?? (() => {})}
+        />
+      )}
+      {selected.type === 'dream' && (
+        <DreamNodePanel
+          key={selected.data.node.id}
+          node={selected.data.node}
+          projectId={projectId!}
+          characters={characters}
+          onDeleted={onDreamNodeDeleted ?? (() => {})}
+          onUpdated={onDreamNodeUpdated ?? (() => {})}
         />
       )}
       {selected.type === 'edge' && (
@@ -1789,10 +1804,12 @@ function ImageStoryNodePanel({
                 {/* Active shot */}
                 <div style={{ position: 'relative' }}>
                   <img
-                    src={`${API}/api/projects/${projectId}/assets/${activeUrl}`}
+                    key={activeUrl || `shot-empty-${i}`}
+                    src={activeUrl ? `${API}/api/projects/${projectId}/assets/${activeUrl}` : ''}
                     alt={`Shot ${i + 1}`}
-                    style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', display: 'block' }}
+                    style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', display: activeUrl ? 'block' : 'none' }}
                     onError={e => { (e.target as HTMLImageElement).style.opacity = '0.1' }}
+                    onLoad={e => { (e.target as HTMLImageElement).style.opacity = '1' }}
                   />
                   <div style={{ position: 'absolute', top: 4, left: 4, background: 'rgba(0,0,0,0.6)', fontSize: 9, color: '#fbbf24', padding: '1px 5px', borderRadius: 3 }}>
                     Shot {i + 1}
@@ -1899,6 +1916,16 @@ function ImageStoryNodePanel({
         </div>
       )}
 
+      {/* Add Story section */}
+      <AddStorySection
+        projectId={projectId}
+        nodeId={node.id}
+        storyPrompt={storyPrompt}
+        hasShots={shots.length > 0}
+        onShotsPlanned={reloadShots}
+        onCharacterCreated={reloadShots}
+      />
+
       {genProgress && (
         <div style={{ fontSize: 10, color: generating ? '#fbbf24' : '#ef4444', marginTop: 6, padding: '4px 6px', background: '#0f0800', borderRadius: 4 }}>
           {generating ? '⏳ ' : ''}{genProgress}
@@ -1968,6 +1995,170 @@ function ImageStoryNodePanel({
     </div>
   )
 }
+
+function AddStorySection({ projectId, nodeId, storyPrompt, hasShots, onShotsPlanned, onCharacterCreated }: {
+  projectId: string
+  nodeId: string
+  storyPrompt: string
+  hasShots: boolean
+  onShotsPlanned: () => void
+  onCharacterCreated: () => void
+}) {
+  const [tab, setTab] = useState<'shots' | 'character' | null>(null)
+
+  // -- Add shots state --
+  const [storyText, setStoryText] = useState('')
+  const [numShots, setNumShots] = useState(3)
+  const [append, setAppend] = useState(false)
+  const [planning, setPlanning] = useState(false)
+
+  // -- New character state --
+  const [charName, setCharName] = useState('')
+  const [charDesc, setCharDesc] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [newCharRef, setNewCharRef] = useState<{ slug: string; name: string } | null>(null)
+
+  const [error, setError] = useState('')
+
+  // Extract art style from story_prompt for portrait generation
+  const styleGuide = storyPrompt.startsWith('Art style:')
+    ? storyPrompt.split('.')[0].replace('Art style:', '').trim()
+    : ''
+
+  async function planShots() {
+    if (!storyText.trim()) return
+    setPlanning(true)
+    setError('')
+    try {
+      const res = await fetch(`${API}/api/projects/${projectId}/image-nodes/${nodeId}/plan-shots`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ story_text: storyText, num_shots: numShots, append }),
+      })
+      const data = await res.json()
+      if (data.detail || data.error) throw new Error(data.detail || data.error)
+      setStoryText('')
+      setTab(null)
+      onShotsPlanned()
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setPlanning(false)
+    }
+  }
+
+  async function createCharacter() {
+    if (!charName.trim()) return
+    setCreating(true)
+    setError('')
+    try {
+      const res = await fetch(`${API}/api/projects/${projectId}/studio/characters/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: charName, description: charDesc, style_guide: styleGuide }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setNewCharRef({ slug: data.slug, name: data.name })
+      setCharName('')
+      setCharDesc('')
+      onCharacterCreated()
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', background: '#0f1a0f', border: '1px solid #14532d',
+    color: '#d1fae5', borderRadius: 6, padding: '7px 9px', fontSize: 12,
+    boxSizing: 'border-box',
+  }
+  const tabBtn = (t: 'shots' | 'character') => ({
+    flex: 1, fontSize: 10, padding: '5px 8px', borderRadius: 4, cursor: 'pointer', border: 'none',
+    background: tab === t ? '#14532d' : '#0c1a0c',
+    color: tab === t ? '#4ade80' : '#6b7280',
+  } as React.CSSProperties)
+
+  return (
+    <div style={{ marginTop: 14, borderTop: '1px solid #1f2937', paddingTop: 10 }}>
+      <div style={{ fontSize: 10, color: '#4b5563', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>Add to Story</div>
+      <div style={{ display: 'flex', gap: 4 }}>
+        <button style={tabBtn('shots')} onClick={() => setTab(t => t === 'shots' ? null : 'shots')}>
+          ✨ Add Shots
+        </button>
+        <button style={tabBtn('character')} onClick={() => setTab(t => t === 'character' ? null : 'character')}>
+          👤 New Character
+        </button>
+      </div>
+
+      {tab === 'shots' && (
+        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <textarea
+            value={storyText}
+            onChange={e => setStoryText(e.target.value)}
+            placeholder="Describe what happens — characters, dialogue, action, mood..."
+            style={{ ...inputStyle, minHeight: 72, resize: 'vertical' }}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <label style={{ fontSize: 10, color: '#6b7280', display: 'flex', alignItems: 'center', gap: 4 }}>
+              Shots
+              <select value={numShots} onChange={e => setNumShots(Number(e.target.value))}
+                style={{ background: '#1f2937', border: '1px solid #374151', color: '#d1d5db', borderRadius: 4, padding: '2px 4px', fontSize: 11 }}>
+                {[1, 2, 3].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </label>
+            {hasShots && (
+              <label style={{ fontSize: 10, color: '#6b7280', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                <input type="checkbox" checked={append} onChange={e => setAppend(e.target.checked)} />
+                Append
+              </label>
+            )}
+          </div>
+          <button onClick={planShots} disabled={planning || !storyText.trim()}
+            style={{ background: planning || !storyText.trim() ? '#374151' : '#15803d', color: 'white', border: 'none', borderRadius: 6, padding: '7px 12px', fontSize: 12, cursor: planning || !storyText.trim() ? 'not-allowed' : 'pointer' }}>
+            {planning ? '⏳ Planning…' : '✨ Plan Shots with AI'}
+          </button>
+          <div style={{ fontSize: 10, color: '#4b5563' }}>AI writes narration lines. Then click Generate for images.</div>
+        </div>
+      )}
+
+      {tab === 'character' && (
+        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <input value={charName} onChange={e => setCharName(e.target.value)}
+            placeholder="Character name (e.g. The White Rabbit)"
+            style={{ ...inputStyle, resize: undefined } as React.CSSProperties} />
+          <textarea value={charDesc} onChange={e => setCharDesc(e.target.value)}
+            placeholder="Describe them — appearance, personality, how they speak, their role in the story..."
+            style={{ ...inputStyle, minHeight: 72, resize: 'vertical' }} />
+          <button onClick={createCharacter} disabled={creating || !charName.trim()}
+            style={{ background: creating || !charName.trim() ? '#374151' : '#1d4ed8', color: 'white', border: 'none', borderRadius: 6, padding: '7px 12px', fontSize: 12, cursor: creating || !charName.trim() ? 'not-allowed' : 'pointer' }}>
+            {creating ? '⏳ Creating…' : '👤 Create Character'}
+          </button>
+          {newCharRef && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#0d1117', borderRadius: 6, padding: '6px 8px' }}>
+              <img
+                src={`${API}/api/projects/${projectId}/assets/refs/${newCharRef.slug}_ref.png?t=${Date.now()}`}
+                alt={newCharRef.name}
+                style={{ width: 40, height: 56, objectFit: 'cover', borderRadius: 4, background: '#1f2937' }}
+                onError={e => { (e.target as HTMLImageElement).style.opacity = '0.2' }}
+              />
+              <div>
+                <div style={{ fontSize: 11, color: '#f9fafb', fontWeight: 'bold' }}>✓ {newCharRef.name}</div>
+                <div style={{ fontSize: 10, color: '#6b7280' }}>Added to story — enable in Character Refs above</div>
+              </div>
+            </div>
+          )}
+          <div style={{ fontSize: 10, color: '#4b5563' }}>AI plans the character then generates a portrait ref image.</div>
+        </div>
+      )}
+
+      {error && <div style={{ marginTop: 6, fontSize: 10, color: '#ef4444' }}>{error}</div>}
+    </div>
+  )
+}
+
 
 function LiveNodePanel({
   node,
@@ -2095,6 +2286,164 @@ function LiveNodePanel({
             borderRadius: 4, padding: '6px 12px', fontSize: 12, cursor: 'pointer',
           }}
         >
+          Delete
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function DreamNodePanel({
+  node,
+  projectId,
+  characters,
+  onDeleted,
+  onUpdated,
+}: {
+  node: DreamNodeData
+  projectId: string
+  characters: Character[]
+  onDeleted: (nodeId: string) => void
+  onUpdated: (node: DreamNodeData) => void
+}) {
+  const [label, setLabel] = useState(node.label)
+  const [character, setCharacter] = useState(node.character)
+  const [bgUrl, setBgUrl] = useState(node.bg_url)
+  const [systemPrompt, setSystemPrompt] = useState(node.system_prompt)
+  const [vision, setVision] = useState(node.vision ?? false)
+  const [charRefs, setCharRefs] = useState<string[]>(node.character_refs ?? [])
+  const [bgRefs, setBgRefs] = useState<string[]>(node.background_refs ?? [])
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', background: '#1f2937', border: '1px solid #374151',
+    color: '#d1d5db', borderRadius: 4, padding: '4px 8px', fontSize: 12,
+    boxSizing: 'border-box',
+  }
+  const labelStyle: React.CSSProperties = {
+    fontSize: 10, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1,
+    display: 'block', marginBottom: 3, marginTop: 10,
+  }
+
+  async function save() {
+    setSaving(true)
+    const updated: DreamNodeData = {
+      id: node.id, label, character, bg_url: bgUrl,
+      system_prompt: systemPrompt, vision,
+      character_refs: charRefs, background_refs: bgRefs,
+    }
+    await fetch(`${API}/api/projects/${projectId}/dream-nodes/${node.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    })
+    setSaving(false)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+    onUpdated(updated)
+  }
+
+  async function deleteNode() {
+    if (!confirm(`Delete dream node "${node.label || node.id}"? This cannot be undone.`)) return
+    await fetch(`${API}/api/projects/${projectId}/dream-nodes/${node.id}`, { method: 'DELETE' })
+    onDeleted(node.id)
+  }
+
+  // Helpers to add/remove ref strings
+  function addCharRef(slug: string) {
+    if (!charRefs.includes(slug)) setCharRefs(prev => [...prev, slug])
+  }
+  function removeCharRef(slug: string) {
+    setCharRefs(prev => prev.filter(s => s !== slug))
+  }
+  function addBgRef(url: string) {
+    if (!bgRefs.includes(url)) setBgRefs(prev => [...prev, url])
+  }
+  function removeBgRef(url: string) {
+    setBgRefs(prev => prev.filter(s => s !== url))
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+        <span style={{ fontSize: 14 }}>✨</span>
+        <h2 style={{ color: '#2dd4bf', fontWeight: 'bold', fontSize: 13, margin: 0 }}>Dream Node</h2>
+      </div>
+
+      <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 12, fontFamily: 'monospace' }}>{node.id}</div>
+
+      <label style={labelStyle}>Label</label>
+      <input style={inputStyle} value={label} onChange={e => setLabel(e.target.value)} placeholder="Dream Moment" />
+
+      <label style={labelStyle}>Character</label>
+      <select style={{ ...inputStyle, cursor: 'pointer' }} value={character} onChange={e => setCharacter(e.target.value)}>
+        <option value="">— none —</option>
+        {characters.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+      </select>
+
+      <label style={labelStyle}>Background URL</label>
+      <input style={inputStyle} value={bgUrl} onChange={e => setBgUrl(e.target.value)} placeholder="scenes/my_bg.mp4" />
+
+      <label style={labelStyle}>System Prompt</label>
+      <textarea
+        style={{ ...inputStyle, minHeight: 100, resize: 'vertical' }}
+        value={systemPrompt}
+        onChange={e => setSystemPrompt(e.target.value)}
+        placeholder="Invite the child to imagine something magical. When they describe it, call generate_dream..."
+      />
+
+      <label style={{ ...labelStyle, marginTop: 14, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', textTransform: 'none', letterSpacing: 0 }}>
+        <input type="checkbox" checked={vision} onChange={e => setVision(e.target.checked)} style={{ accentColor: '#0d9488', width: 14, height: 14 }} />
+        <span style={{ fontSize: 11, color: vision ? '#2dd4bf' : '#9ca3af' }}>
+          Vision {vision ? '👁 (camera → Gemini)' : '(off)'}
+        </span>
+      </label>
+
+      <label style={labelStyle}>Character refs (for image gen)</label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+        {characters.map(c => {
+          const slug = charSlug(c.name)
+          const active = charRefs.includes(slug)
+          return (
+            <button key={slug} onClick={() => active ? removeCharRef(slug) : addCharRef(slug)}
+              style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, cursor: 'pointer', border: 'none',
+                background: active ? '#0d9488' : '#1f2937', color: active ? 'white' : '#9ca3af' }}>
+              {c.name}
+            </button>
+          )
+        })}
+      </div>
+
+      <label style={labelStyle}>Background refs (for image gen)</label>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {bgRefs.map(url => (
+          <div key={url} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 10, color: '#6b7280', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{url}</span>
+            <button onClick={() => removeBgRef(url)} style={{ fontSize: 10, background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>✕</button>
+          </div>
+        ))}
+        <input
+          style={{ ...inputStyle, marginTop: 2 }}
+          placeholder="Paste asset path and press Enter"
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              const v = (e.target as HTMLInputElement).value.trim()
+              if (v) { addBgRef(v); (e.target as HTMLInputElement).value = '' }
+            }
+          }}
+        />
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, marginTop: 14 }}>
+        <button onClick={save} disabled={saving}
+          style={{ flex: 1, background: saving ? '#374151' : '#0d9488', color: 'white', border: 'none',
+            borderRadius: 4, padding: '6px 12px', fontSize: 12, cursor: saving ? 'not-allowed' : 'pointer' }}>
+          {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save'}
+        </button>
+        <button onClick={deleteNode}
+          style={{ background: '#1f2937', color: '#ef4444', border: '1px solid #374151',
+            borderRadius: 4, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
           Delete
         </button>
       </div>

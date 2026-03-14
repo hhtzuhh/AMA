@@ -6,15 +6,17 @@ import {
   type Node, type Edge, type Connection,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import type { StoryData, Character, LiveNodeData, ImageStoryNodeData } from '../types'
+import type { StoryData, Character, LiveNodeData, ImageStoryNodeData, DreamNodeData } from '../types'
 import PageNode, { charSlug } from '../components/pipeline/PageNode'
 import LiveNode from '../components/pipeline/LiveNode'
 import ImageStoryNode from '../components/pipeline/ImageStoryNode'
+import DreamNode from '../components/pipeline/DreamNode'
 import NodePanel, { type StageInfo } from '../components/pipeline/NodePanel'
 import PipelineToolbar from '../components/pipeline/PipelineToolbar'
+import StudioPanel from '../components/pipeline/StudioPanel'
 import { API_URL as API } from '../config'
 
-const nodeTypes = { page: PageNode, live: LiveNode, image_story: ImageStoryNode }
+const nodeTypes = { page: PageNode, live: LiveNode, image_story: ImageStoryNode, dream: DreamNode }
 
 const PAGE_Y = 0
 const PAGES_PER_ROW = 10
@@ -57,6 +59,7 @@ export default function PipelinePage() {
   const [doneNarrations, setDoneNarrations] = useState<Set<number>>(new Set())
 
   const [storyCharacters, setStoryCharacters] = useState<Character[]>([])
+  const [showStudio, setShowStudio] = useState(false)
 
   // spriteUsers: built from story data
   const spriteUsersRef = useRef<SpriteUserMap>({})
@@ -68,7 +71,7 @@ export default function PipelinePage() {
   const savePositions = useCallback((currentNodes: Node[]) => {
     if (!projectId) return
     const pos: Record<string, { x: number; y: number }> = {}
-    currentNodes.forEach((n: Node) => { if (n.id.startsWith('page_') || n.id.startsWith('live_') || n.id.startsWith('img_')) pos[n.id] = n.position })
+    currentNodes.forEach((n: Node) => { pos[n.id] = n.position })
     fetch(`${API}/api/projects/${projectId}/positions`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -123,18 +126,14 @@ export default function PipelinePage() {
 
   const savePageEdges = useCallback((currentEdges: Edge[]) => {
     if (!projectId) return
+    const isNodeId = (id: string) => id.startsWith('live_') || id.startsWith('img_') || id.startsWith('dream_')
     const allEdges = currentEdges
-      .filter(e => e.source.startsWith('page_') || e.source.startsWith('live_') || e.source.startsWith('img_') ||
-                   e.target.startsWith('page_') || e.target.startsWith('live_') || e.target.startsWith('img_'))
-      .map(e => {
-        const fromIsString = e.source.startsWith('live_') || e.source.startsWith('img_')
-        const toIsString = e.target.startsWith('live_') || e.target.startsWith('img_')
-        return {
-          from: fromIsString ? e.source : parseInt(e.source.replace('page_', '')),
-          to: toIsString ? e.target : parseInt(e.target.replace('page_', '')),
-          label: (e.data as any)?.label ?? '',
-        }
-      })
+      .map(e => ({
+        from: isNodeId(e.source) ? e.source : parseInt(e.source.replace('page_', '')),
+        to: isNodeId(e.target) ? e.target : parseInt(e.target.replace('page_', '')),
+        label: (e.data as any)?.label ?? '',
+      }))
+      .filter(e => !isNaN(e.from as number) || typeof e.from === 'string')
     fetch(`${API}/api/projects/${projectId}/edges`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -395,6 +394,20 @@ export default function PipelinePage() {
       })
     })
 
+    // Add dream nodes from story data
+    ;(data.dream_nodes ?? []).forEach((dreamNode, di) => {
+      const dId = dreamNode.id
+      allNodes.push({
+        id: dId,
+        type: 'dream',
+        position: savedPositions[dId] ?? { x: 400 + di * (PAGE_GAP_X + 20), y: -320 },
+        data: {
+          node: dreamNode,
+          onClick: () => setSelected({ type: 'dream', data: { node: dreamNode } }),
+        },
+      })
+    })
+
     setNodeStatuses(s => ({ ...s, stage_story: 'Generated' }))
     setNodes(allNodes)
     setEdges([])
@@ -438,6 +451,30 @@ export default function PipelinePage() {
       },
     }])
     setSelected({ type: 'live', data: { node } })
+  }
+
+  async function createDreamNode() {
+    if (!projectId) return
+    const newId = `dream_${Date.now()}`
+    const node: DreamNodeData = {
+      id: newId, label: 'Dream Moment', character: '', bg_url: '',
+      system_prompt: '', vision: false, character_refs: [], background_refs: [],
+    }
+    await fetch(`${API}/api/projects/${projectId}/dream-nodes/${newId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(node),
+    })
+    setNodes((prev: Node[]) => [...prev, {
+      id: newId,
+      type: 'dream',
+      position: { x: 400, y: -320 },
+      data: {
+        node,
+        onClick: () => setSelected({ type: 'dream', data: { node } }),
+      },
+    }])
+    setSelected({ type: 'dream', data: { node } })
   }
 
   async function createImageStoryNode() {
@@ -530,20 +567,21 @@ export default function PipelinePage() {
                 body: JSON.stringify({ edges: edgesToUse }),
               }).catch(() => {})
             }
-            const rfEdges: Edge[] = edgesToUse.map((e: any) => {
-              const fromIsStr = typeof e.from === 'string' && (e.from.startsWith('live_') || e.from.startsWith('img_'))
-              const toIsStr = typeof e.to === 'string' && (e.to.startsWith('live_') || e.to.startsWith('img_'))
-              const src = fromIsStr ? e.from : `page_${e.from}`
-              const tgt = toIsStr ? e.to : `page_${e.to}`
-              return {
-                id: `e_${src}_${tgt}`,
-                source: src,
-                target: tgt,
-                label: e.label || undefined,
-                style: { stroke: '#6366f1', strokeWidth: 2.5 }, interactionWidth: 20,
-                data: { label: e.label ?? '' },
-              }
-            })
+            const isNodeId = (v: any) => typeof v === 'string' && (v.startsWith('live_') || v.startsWith('img_') || v.startsWith('dream_'))
+            const rfEdges: Edge[] = edgesToUse
+              .filter((e: any) => e.from != null && e.to != null)
+              .map((e: any) => {
+                const src = isNodeId(e.from) ? e.from : `page_${e.from}`
+                const tgt = isNodeId(e.to) ? e.to : `page_${e.to}`
+                return {
+                  id: `e_${src}_${tgt}_${e.from}_${e.to}`,
+                  source: src,
+                  target: tgt,
+                  label: e.label || undefined,
+                  style: { stroke: '#6366f1', strokeWidth: 2.5 }, interactionWidth: 20,
+                  data: { label: e.label ?? '' },
+                }
+              })
             setEdges(rfEdges)
           }).catch(() => {})
         }
@@ -594,7 +632,7 @@ export default function PipelinePage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 41px)' }}>
       <PipelineToolbar stages={toolbarStages} onUpload={handleUpload} pdfName={pdfName} />
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
       <div style={{ flex: 1 }}>
         <ReactFlow
           nodes={nodesWithStatus}
@@ -636,10 +674,47 @@ export default function PipelinePage() {
               >
                 + Image Story
               </button>
+              <button
+                onClick={createDreamNode}
+                style={{ background: '#061a1a', border: '1px solid #0d9488', color: '#2dd4bf', borderRadius: 6, padding: '4px 12px', fontSize: 12, cursor: 'pointer' }}
+              >
+                + Dream Node
+              </button>
             </div>
+          </Panel>
+          <Panel position="top-right">
+            <button
+              onClick={() => { setShowStudio(s => !s); if (!showStudio) setSelected(null) }}
+              style={{
+                background: showStudio ? '#4f46e5' : '#1e1b4b',
+                border: '1px solid #6366f1', color: '#a5b4fc',
+                borderRadius: 6, padding: '4px 14px', fontSize: 12, cursor: 'pointer',
+              }}
+            >
+              🪄 AI Studio
+            </button>
           </Panel>
         </ReactFlow>
       </div>
+
+      {/* Studio drawer */}
+      {showStudio && projectId && (
+        <div style={{
+          position: 'absolute', top: 0, right: 0, width: 380, height: '100%',
+          background: '#0f0f1a', borderLeft: '1px solid #374151',
+          zIndex: 50, padding: 20, boxSizing: 'border-box',
+          display: 'flex', flexDirection: 'column',
+        }}>
+          <button
+            onClick={() => setShowStudio(false)}
+            style={{ position: 'absolute', top: 12, right: 14, background: 'none', border: 'none', color: '#6b7280', fontSize: 18, cursor: 'pointer' }}
+          >✕</button>
+          <StudioPanel
+            projectId={projectId}
+            onDone={() => { setShowStudio(false); handlePageUpdated() }}
+          />
+        </div>
+      )}
       <NodePanel
         selected={selected}
         onClose={() => setSelected(null)}
@@ -677,6 +752,19 @@ export default function PipelinePage() {
               : n
           ))
           setSelected({ type: 'image_story', data: { node } })
+        }}
+        onDreamNodeDeleted={(nodeId: string) => {
+          setNodes((prev: Node[]) => prev.filter((n: Node) => n.id !== nodeId))
+          setEdges((prev: Edge[]) => prev.filter((e: Edge) => e.source !== nodeId && e.target !== nodeId))
+          setSelected(null)
+        }}
+        onDreamNodeUpdated={(node: DreamNodeData) => {
+          setNodes((prev: Node[]) => prev.map((n: Node) =>
+            n.id === node.id
+              ? { ...n, data: { ...n.data, node, onClick: () => setSelected({ type: 'dream', data: { node } }) } }
+              : n
+          ))
+          setSelected({ type: 'dream', data: { node } })
         }}
         onEdgeLabelSaved={(edgeId, label) => {
           setEdges((prev: Edge[]) => prev.map((e: Edge) =>

@@ -348,6 +348,41 @@ def remove_live_node(project_id: str, node_id: str):
     return {"ok": True}
 
 
+class DreamNodeBody(BaseModel):
+    id: str
+    label: str = "Dream Moment"
+    character: str = ""
+    bg_url: str = ""
+    system_prompt: str = ""
+    vision: bool = False
+    character_refs: list[str] = []
+    background_refs: list[str] = []
+
+
+@router.get("/{project_id}/dream-nodes")
+def get_dream_nodes(project_id: str):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    return storage.get_dream_nodes(project_id)
+
+
+@router.put("/{project_id}/dream-nodes/{node_id}")
+def upsert_dream_node(project_id: str, node_id: str, body: DreamNodeBody):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    node = body.model_dump()
+    node["id"] = node_id
+    return storage.save_dream_node(project_id, node)
+
+
+@router.delete("/{project_id}/dream-nodes/{node_id}")
+def remove_dream_node(project_id: str, node_id: str):
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+    storage.delete_dream_node(project_id, node_id)
+    return {"ok": True}
+
+
 @router.post("/{project_id}/pages/{page_num}/ref-image")
 async def upload_ref_image(project_id: str, page_num: int, file: UploadFile = File(...)):
     """Upload a custom reference image for background generation."""

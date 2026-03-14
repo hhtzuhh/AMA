@@ -595,6 +595,35 @@ def delete_image_node(project_id: str, node_id: str) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 
+def get_dream_nodes(project_id: str) -> list:
+    data = get_story_data(project_id)
+    return data.get("dream_nodes", []) if data else []
+
+
+def save_dream_node(project_id: str, node: dict) -> dict:
+    path = project_dir(project_id) / "story_data.json"
+    data = json.loads(path.read_text())
+    nodes = data.setdefault("dream_nodes", [])
+    idx = next((i for i, n in enumerate(nodes) if n["id"] == node["id"]), None)
+    if idx is not None:
+        nodes[idx] = node
+    else:
+        nodes.append(node)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    return node
+
+
+def delete_dream_node(project_id: str, node_id: str) -> None:
+    path = project_dir(project_id) / "story_data.json"
+    data = json.loads(path.read_text())
+    data["dream_nodes"] = [n for n in data.get("dream_nodes", []) if n["id"] != node_id]
+    data["edges"] = [
+        e for e in data.get("edges", [])
+        if str(e.get("from")) != node_id and str(e.get("to")) != node_id
+    ]
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
 def update_image_node_shots(project_id: str, node_id: str, shots: list) -> None:
     """Set the active shots list on an image node in story_data.json."""
     path = project_dir(project_id) / "story_data.json"
@@ -635,9 +664,10 @@ def set_image_shot_version(project_id: str, node_id: str, shot_index: int, versi
     for n in data.get("image_nodes", []):
         if n["id"] == node_id:
             shots = n.get("shots", [])
-            if 0 <= shot_index < len(shots):
-                shots[shot_index]["image_url"] = entry["url"]
-                shots[shot_index]["prompt"] = entry.get("prompt", shots[shot_index].get("prompt", ""))
+            idx = shot_index - 1  # shot_index is 1-based; shots[] is 0-based
+            if 0 <= idx < len(shots):
+                shots[idx]["image_url"] = entry["url"]
+                shots[idx]["prompt"] = entry.get("prompt", shots[idx].get("prompt", ""))
             break
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 

@@ -66,6 +66,17 @@ export interface ImageStoryNodeData {
   shots: Shot[]
 }
 
+export interface DreamNodeData {
+  id: string
+  label: string
+  character: string
+  bg_url: string
+  system_prompt: string
+  vision?: boolean
+  character_refs: string[]
+  background_refs: string[]
+}
+
 export interface StoryData {
   title: string
   summary: string
@@ -75,6 +86,7 @@ export interface StoryData {
   edges?: StoryEdge[]
   live_nodes?: LiveNodeData[]
   image_nodes?: ImageStoryNodeData[]
+  dream_nodes?: DreamNodeData[]
 }
 
 export interface SpriteVersion {

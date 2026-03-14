@@ -161,6 +161,109 @@ async def generate_shot_tts(project_id: str, node_id: str, shot_index: int, body
     return {"job_id": job.job_id}
 
 
+class PlanShotsBody(BaseModel):
+    story_text: str          # what you want to happen in this scene
+    num_shots: int = 3       # how many shots to plan (capped at 3)
+    append: bool = False     # True = append to existing shots; False = replace
+
+
+@router.post("/{project_id}/image-nodes/{node_id}/plan-shots")
+async def plan_shots(project_id: str, node_id: str, body: PlanShotsBody):
+    """Use AI to plan narration lines for shots in this scene. Does not generate images."""
+    import asyncio, os, json
+    from config import MODEL_STORY
+
+    if not storage.get_project(project_id):
+        raise HTTPException(404, "Project not found")
+
+    image_nodes = storage.get_image_nodes(project_id)
+    node = next((n for n in image_nodes if n["id"] == node_id), None)
+    if not node:
+        raise HTTPException(404, "Image node not found")
+
+    num_shots = max(1, min(3, body.num_shots))
+    story_data = storage.get_story_data(project_id) or {}
+    story_title = story_data.get("title", "")
+    story_summary = story_data.get("summary", "")
+    scene_label = node.get("label", "Scene")
+    story_prompt = node.get("story_prompt", "")
+
+    # Build character context from story_data so AI writes consistent narration
+    characters = story_data.get("characters", [])
+    char_block = ""
+    if characters:
+        char_lines = []
+        for c in characters:
+            role = c.get("role", "")
+            speech = c.get("speech_style", "")
+            personality = c.get("personality", "")
+            char_lines.append(f"- {c['name']} ({role}): {personality}. Speaks: {speech}.")
+        char_block = "Characters in this story:\n" + "\n".join(char_lines) + "\n"
+
+    # Note which characters are already in this node
+    node_char_refs = node.get("character_refs", [])
+    scene_chars = [c["name"] for c in characters if any(
+        r in node_char_refs for r in [c["name"].lower().replace(" ", "_"), c["name"].lower()]
+    )]
+    scene_char_note = f"Characters appearing in this scene: {', '.join(scene_chars)}." if scene_chars else ""
+
+    prompt = f"""You are a children's storybook writer planning narration lines for an illustrated scene.
+
+Story: "{story_title}" — {story_summary}
+{char_block}
+Scene: "{scene_label}"
+{scene_char_note}
+Scene context: {story_prompt}
+
+The user wants to add this story content to the scene:
+\"\"\"{body.story_text}\"\"\"
+
+Write exactly {num_shots} short narration/dialogue lines for this scene.
+Each line will be spoken aloud by a narrator (TTS) and used as the caption for one illustrated shot.
+Rules:
+- Use the characters' names and stay true to their personality and speech style
+- Each line: 1-2 warm, expressive sentences in picture-book style
+- Lines should flow naturally as a sequence
+- No camera directions, no stage directions — just the spoken prose
+
+Respond with ONLY a JSON array of strings, one per shot:
+["line 1", "line 2", "line 3"]"""
+
+    try:
+        import os
+        from google import genai as _genai
+        client = _genai.Client(api_key=os.getenv("GEMINI_API_KEY"), vertexai=False)
+        resp = await asyncio.to_thread(
+            client.models.generate_content,
+            model=MODEL_STORY,
+            contents=prompt,
+        )
+        raw = resp.text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        lines: list[str] = json.loads(raw.strip())
+        lines = [l.strip() for l in lines if l.strip()][:num_shots]
+    except Exception as e:
+        raise HTTPException(500, f"AI planning failed: {e}")
+
+    new_shots = [{"prompt": line, "image_url": "", "nar_url": None} for line in lines]
+
+    # Update story_data.json
+    path = __import__("config").project_dir(project_id) / "story_data.json"
+    data = json.loads(path.read_text())
+    for n in data.get("image_nodes", []):
+        if n["id"] == node_id:
+            existing = n.get("shots", []) if body.append else []
+            n["shots"] = existing + new_shots
+            n["num_shots"] = len(n["shots"])
+            break
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+    return {"shots": new_shots, "appended": body.append}
+
+
 @router.post("/{project_id}/image-nodes/{node_id}/generate")
 async def generate_image_node(project_id: str, node_id: str):
     if not storage.get_project(project_id):
