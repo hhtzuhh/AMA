@@ -72,23 +72,15 @@ Available routes:
 
     # Queue to signal navigation from tool → downstream task
     nav_queue: asyncio.Queue[str] = asyncio.Queue()
-    # Gate: child must speak AFTER the most recent AI turn before navigate_to is allowed.
-    # Resets every time the AI starts speaking, so each AI reply requires a fresh child response.
-    child_spoke_after_ai = False
 
     def navigate_to(node_id: str) -> dict:
         """Advance the story to the next scene.
 
-        Call this ONLY when the child has directly and clearly performed the specific
-        action described in the matching route label — not for questions, greetings,
-        or anything ambiguous. If unsure, keep talking and wait for a clearer response.
+        Call this when the child has clearly met the condition for a route.
 
         Args:
             node_id: ID of the route whose condition the child just met.
         """
-        if not child_spoke_after_ai:
-            log.info("[live] navigate_to blocked — child hasn't responded yet: %s", node_id)
-            return {"status": "waiting", "reason": "still waiting for child response"}
         log.info("[live] navigate_to called: %s", node_id)
         try:
             loop = asyncio.get_event_loop()
@@ -134,14 +126,10 @@ Available routes:
     shutdown = asyncio.Event()
 
     async def upstream_task():
-        nonlocal child_spoke_after_ai
         try:
             while True:
                 message = await websocket.receive()
                 if "bytes" in message:
-                    if not child_spoke_after_ai:
-                        child_spoke_after_ai = True
-                        log.info("[live] child spoke — navigation unlocked for this turn")
                     blob = types.Blob(mime_type="audio/pcm;rate=16000", data=message["bytes"])
                     live_request_queue.send_realtime(blob)
                 elif "text" in message:
@@ -155,7 +143,6 @@ Available routes:
             live_request_queue.close()
 
     async def downstream_task():
-        nonlocal child_spoke_after_ai
         try:
             async for event in runner.run_live(
                 user_id=user_id,
@@ -183,10 +170,6 @@ Available routes:
                 for part in event.content.parts:
                     inline = getattr(part, "inline_data", None)
                     if inline and inline.data:
-                        # AI started a new audio turn — reset gate so child must speak again
-                        if child_spoke_after_ai:
-                            child_spoke_after_ai = False
-                            log.info("[live] AI speaking — gate reset, waiting for child")
                         await websocket.send_bytes(inline.data)
                     txt = getattr(part, "text", None)
                     if txt:

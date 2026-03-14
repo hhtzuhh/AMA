@@ -71,6 +71,7 @@ export interface DreamNodeData {
   id: string
   label: string
   character: string
+  character_sprite?: string
   bg_url: string
   system_prompt: string
   vision?: boolean

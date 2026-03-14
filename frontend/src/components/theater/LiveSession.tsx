@@ -25,7 +25,8 @@ export default function LiveSession({ projectId, node, onNavigate }: Props) {
   const pendingNavRef = useRef<string | null>(null)
 
   useEffect(() => {
-    return () => { cleanup() }
+    const t = setTimeout(() => { startSession() }, 1000)
+    return () => { clearTimeout(t); cleanup() }
   }, [])
 
   function cleanup() {
@@ -188,50 +189,38 @@ export default function LiveSession({ projectId, node, onNavigate }: Props) {
   const statusColor = { idle: '#6b7280', connecting: '#f59e0b', active: '#22c55e', error: '#ef4444' }[status]
 
   return (
-    <div
-      className="absolute inset-0 flex flex-col items-center justify-end"
-      style={{ zIndex: 10, padding: '0 0 80px 0' }}
-    >
+    <div style={{ position: 'absolute', bottom: 24, right: 24, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
       {/* Transcript bubble */}
       {transcript && (
         <div style={{
-          background: 'rgba(0,0,0,0.7)', color: '#f3f4f6', borderRadius: 12,
-          padding: '10px 18px', maxWidth: '60%', textAlign: 'center',
-          fontSize: 15, lineHeight: 1.5, marginBottom: 20,
+          background: 'rgba(0,0,0,0.7)', color: '#f3f4f6', borderRadius: 10,
+          padding: '8px 12px', maxWidth: 260, textAlign: 'right',
+          fontSize: 13, lineHeight: 1.5,
           border: '1px solid rgba(168,85,247,0.4)',
         }}>
           {transcript}
         </div>
       )}
 
-      {/* Control button */}
-      {status === 'idle' ? (
-        <button
-          onClick={startSession}
+      {/* Indicator row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 10, color: statusColor, fontFamily: 'monospace' }}>
+          {status === 'idle' ? 'tap to talk' : status === 'connecting' ? 'connecting…' : status === 'active' ? 'listening' : 'error'}
+        </span>
+        <div
+          onClick={status === 'idle' ? startSession : stopSession}
           style={{
-            background: '#7c3aed', color: 'white', border: 'none',
-            borderRadius: 50, width: 64, height: 64, fontSize: 28,
-            cursor: 'pointer', boxShadow: '0 0 20px #7c3aed88',
-          }}
-        >
-          🎤
-        </button>
-      ) : (
-        <button
-          onClick={stopSession}
-          style={{
-            background: statusColor, color: 'white', border: 'none',
-            borderRadius: 50, width: 64, height: 64, fontSize: 22,
-            cursor: 'pointer', boxShadow: `0 0 20px ${statusColor}88`,
+            width: 28, height: 28, borderRadius: 50,
+            background: statusColor,
+            boxShadow: `0 0 8px ${statusColor}99`,
+            cursor: 'pointer',
             animation: status === 'active' ? 'pulse 1.5s infinite' : 'none',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 13, color: 'white',
           }}
         >
-          {status === 'connecting' ? '⏳' : status === 'error' ? '✕' : '■'}
-        </button>
-      )}
-
-      <div style={{ fontSize: 11, color: statusColor, marginTop: 8, fontFamily: 'monospace' }}>
-        {status === 'idle' ? 'Tap to talk' : status === 'connecting' ? 'Connecting...' : status === 'active' ? 'Listening...' : 'Error'}
+          {status === 'idle' ? '🎤' : status === 'connecting' ? '⏳' : status === 'error' ? '✕' : ''}
+        </div>
       </div>
     </div>
   )

@@ -120,11 +120,12 @@ export default function TheaterPage() {
     if (dreamNode.character) {
       charName = dreamNode.character
       const slug = charName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+      const spriteState = dreamNode.character_sprite || 'idle'
       const charManifest = (manifest as any)?.characters?.[slug]
-      const stateEntry = charManifest?.sprites?.['idle']
+      const stateEntry = charManifest?.sprites?.[spriteState] ?? charManifest?.sprites?.['idle']
       const versionUrl = stateEntry?.versions?.length > 0
         ? stateEntry.versions[stateEntry.current ?? stateEntry.versions.length - 1]?.url : null
-      if (versionUrl) sprites = [{ url: assetUrl(projectId!, versionUrl as string), state: 'idle' }]
+      if (versionUrl) sprites = [{ url: assetUrl(projectId!, versionUrl as string), state: spriteState }]
     }
   } else if (isLiveNode && liveNode) {
     if (liveNode.bg_url) bgUrl = assetUrl(projectId!, liveNode.bg_url)

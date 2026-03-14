@@ -14,6 +14,7 @@ import DreamNode from '../components/pipeline/DreamNode'
 import NodePanel, { type StageInfo } from '../components/pipeline/NodePanel'
 import PipelineToolbar from '../components/pipeline/PipelineToolbar'
 import StudioPanel from '../components/pipeline/StudioPanel'
+import SpritesPanel from '../components/pipeline/SpritesPanel'
 import { API_URL as API } from '../config'
 
 const nodeTypes = { page: PageNode, live: LiveNode, image_story: ImageStoryNode, dream: DreamNode }
@@ -60,6 +61,7 @@ export default function PipelinePage() {
 
   const [storyCharacters, setStoryCharacters] = useState<Character[]>([])
   const [showStudio, setShowStudio] = useState(false)
+  const [showSprites, setShowSprites] = useState(false)
 
   // spriteUsers: built from story data
   const spriteUsersRef = useRef<SpriteUserMap>({})
@@ -692,19 +694,43 @@ export default function PipelinePage() {
             </div>
           </Panel>
           <Panel position="top-right">
-            <button
-              onClick={() => { setShowStudio(s => !s); if (!showStudio) setSelected(null) }}
-              style={{
-                background: showStudio ? '#4f46e5' : '#1e1b4b',
-                border: '1px solid #6366f1', color: '#a5b4fc',
-                borderRadius: 6, padding: '4px 14px', fontSize: 12, cursor: 'pointer',
-              }}
-            >
-              🪄 AI Studio
-            </button>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                onClick={() => { setShowSprites(s => !s); if (!showSprites) setShowStudio(false) }}
+                style={{
+                  background: showSprites ? '#92400e' : '#1c1200',
+                  border: '1px solid #b45309', color: '#fbbf24',
+                  borderRadius: 6, padding: '4px 14px', fontSize: 12, cursor: 'pointer',
+                }}
+              >
+                🎨 Sprites
+              </button>
+              <button
+                onClick={() => { setShowStudio(s => !s); if (!showStudio) { setShowSprites(false); setSelected(null) } }}
+                style={{
+                  background: showStudio ? '#4f46e5' : '#1e1b4b',
+                  border: '1px solid #6366f1', color: '#a5b4fc',
+                  borderRadius: 6, padding: '4px 14px', fontSize: 12, cursor: 'pointer',
+                }}
+              >
+                🪄 AI Studio
+              </button>
+            </div>
           </Panel>
         </ReactFlow>
       </div>
+
+      {/* Sprites drawer */}
+      {showSprites && projectId && (
+        <SpritesPanel
+          projectId={projectId}
+          characters={storyCharacters}
+          manifest={manifest}
+          onManifestChange={fetchManifest}
+          onCharactersReloaded={reloadCharacters}
+          onClose={() => setShowSprites(false)}
+        />
+      )}
 
       {/* Studio drawer */}
       {showStudio && projectId && (

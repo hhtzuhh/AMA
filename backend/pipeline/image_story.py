@@ -165,9 +165,11 @@ CRITICAL: Each image must be a SINGLE full-bleed illustration of ONE moment.
 NEVER combine multiple shots into one image. NEVER create comic panels, grids, or collages.
 Every image is a standalone cinematic frame, like a movie still.
 
+ABSOLUTELY NO TEXT in any image — no subtitles, no captions, no dialogue, no labels, no words, no letters of any kind anywhere in the frame.
+
 {shots_block}
 
-No text overlays. No labels. No borders. No panel dividers."""
+No text. No borders. No panel dividers."""
 
     contents = char_parts + bg_parts + [types.Part.from_text(text=prompt_text)]
     config = types.GenerateContentConfig(
@@ -237,7 +239,7 @@ No text overlays. No labels. No borders. No panel dividers."""
 The character reference images above define exactly how every character looks.
 Generate ONE single full-bleed cinematic illustration for this story moment:
 \"{narration}\"
-No text overlays. No borders."""
+ABSOLUTELY NO TEXT — no subtitles, captions, labels, or letters anywhere in the frame. No borders."""
             try:
                 fill_resp = await asyncio.to_thread(
                     img_client.models.generate_content,

@@ -146,6 +146,7 @@ export default function NodePanel({ selected, onClose, manifest, completedSprite
           node={selected.data.node}
           projectId={projectId!}
           characters={characters}
+          manifest={manifest}
           onDeleted={onDreamNodeDeleted ?? (() => {})}
           onUpdated={onDreamNodeUpdated ?? (() => {})}
         />
@@ -2437,17 +2438,20 @@ function DreamNodePanel({
   node,
   projectId,
   characters,
+  manifest,
   onDeleted,
   onUpdated,
 }: {
   node: DreamNodeData
   projectId: string
   characters: Character[]
+  manifest: Record<string, any>
   onDeleted: (nodeId: string) => void
   onUpdated: (node: DreamNodeData) => void
 }) {
   const [label, setLabel] = useState(node.label)
   const [character, setCharacter] = useState(node.character)
+  const [characterSprite, setCharacterSprite] = useState(node.character_sprite ?? '')
   const [bgUrl, setBgUrl] = useState(node.bg_url)
   const [systemPrompt, setSystemPrompt] = useState(node.system_prompt)
   const [vision, setVision] = useState(node.vision ?? false)
@@ -2455,6 +2459,18 @@ function DreamNodePanel({
   const [bgRefs, setBgRefs] = useState<string[]>(node.background_refs ?? [])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [showBgPicker, setShowBgPicker] = useState(false)
+  const [bgPrompt, setBgPrompt] = useState('')
+  const [generatingBg, setGeneratingBg] = useState(false)
+  const [bgGenProgress, setBgGenProgress] = useState('')
+
+  const charSlugVal = charSlug(character)
+  const spriteStates: string[] = Object.keys((manifest as any)?.characters?.[charSlugVal]?.sprites ?? {})
+  const spriteEntry = (manifest as any)?.characters?.[charSlugVal]?.sprites?.[characterSprite]
+  const spriteVersions: string[] = spriteEntry?.versions?.map((v: any) => v.url) ?? []
+  const activeSpriteUrl = spriteVersions.length > 0
+    ? `${API}/api/projects/${projectId}/assets/${spriteVersions[spriteVersions.length - 1]}`
+    : null
 
   const inputStyle: React.CSSProperties = {
     width: '100%', background: '#1f2937', border: '1px solid #374151',
@@ -2466,10 +2482,43 @@ function DreamNodePanel({
     display: 'block', marginBottom: 3, marginTop: 10,
   }
 
+  async function generateBackground() {
+    if (!bgPrompt.trim()) return
+    setGeneratingBg(true)
+    setBgGenProgress('Submitting…')
+    try {
+      const res = await fetch(`${API}/api/projects/${projectId}/dream-nodes/${node.id}/generate-background`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: bgPrompt }),
+      })
+      const { job_id } = await res.json()
+      const poll = setInterval(async () => {
+        const jr = await fetch(`${API}/api/projects/${projectId}/pipeline/jobs/${job_id}`)
+        const job = await jr.json()
+        setBgGenProgress(job.progress ?? '')
+        if (job.status === 'done') {
+          clearInterval(poll)
+          setGeneratingBg(false)
+          const url = job.result?.bg_url ?? ''
+          if (url) setBgUrl(url)
+          setBgGenProgress('')
+        } else if (job.status === 'failed') {
+          clearInterval(poll)
+          setGeneratingBg(false)
+          setBgGenProgress('Failed: ' + (job.error ?? 'unknown'))
+        }
+      }, 3000)
+    } catch (e: any) {
+      setGeneratingBg(false)
+      setBgGenProgress('Error: ' + e.message)
+    }
+  }
+
   async function save() {
     setSaving(true)
     const updated: DreamNodeData = {
-      id: node.id, label, character, bg_url: bgUrl,
+      id: node.id, label, character, character_sprite: characterSprite, bg_url: bgUrl,
       system_prompt: systemPrompt, vision,
       character_refs: charRefs, background_refs: bgRefs,
     }
@@ -2517,13 +2566,84 @@ function DreamNodePanel({
       <input style={inputStyle} value={label} onChange={e => setLabel(e.target.value)} placeholder="Dream Moment" />
 
       <label style={labelStyle}>Character</label>
-      <select style={{ ...inputStyle, cursor: 'pointer' }} value={character} onChange={e => setCharacter(e.target.value)}>
+      <select style={{ ...inputStyle, cursor: 'pointer' }} value={character} onChange={e => { setCharacter(e.target.value); setCharacterSprite('') }}>
         <option value="">— none —</option>
         {characters.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
       </select>
 
-      <label style={labelStyle}>Background URL</label>
-      <input style={inputStyle} value={bgUrl} onChange={e => setBgUrl(e.target.value)} placeholder="scenes/my_bg.mp4" />
+      {character && (
+        <>
+          <label style={labelStyle}>Sprite</label>
+          {spriteStates.length > 0 ? (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+              <select
+                style={{ ...inputStyle, flex: 1, cursor: 'pointer' }}
+                value={characterSprite}
+                onChange={e => setCharacterSprite(e.target.value)}
+              >
+                <option value="">— pick state —</option>
+                {spriteStates.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              {activeSpriteUrl && (
+                <img
+                  key={activeSpriteUrl}
+                  src={activeSpriteUrl}
+                  style={{ width: 52, height: 52, objectFit: 'contain', background: 'rgba(0,0,0,0.3)', borderRadius: 4, flexShrink: 0 }}
+                />
+              )}
+            </div>
+          ) : (
+            <div style={{ fontSize: 10, color: '#6b7280', padding: '4px 0' }}>No sprites generated yet.</div>
+          )}
+        </>
+      )}
+
+      <label style={labelStyle}>Background</label>
+      {bgUrl && (
+        <div style={{ marginBottom: 6, position: 'relative' }}>
+          <video
+            key={bgUrl}
+            src={`${API}/api/projects/${projectId}/assets/${bgUrl}`}
+            style={{ width: '100%', borderRadius: 4, maxHeight: 90, objectFit: 'cover', display: 'block' }}
+            autoPlay muted loop playsInline
+          />
+          <button
+            onClick={() => setBgUrl('')}
+            style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.6)', border: 'none', color: '#9ca3af', borderRadius: 3, padding: '1px 6px', fontSize: 11, cursor: 'pointer' }}
+          >✕</button>
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+        <button
+          onClick={() => setShowBgPicker(true)}
+          style={{ flex: 1, background: '#1f2937', border: '1px solid #374151', color: '#9ca3af', borderRadius: 4, padding: '4px 0', fontSize: 11, cursor: 'pointer' }}
+        >
+          Pick from library
+        </button>
+      </div>
+      <div style={{ background: '#0f172a', border: '1px solid #374151', borderRadius: 6, padding: 8, marginBottom: 8 }}>
+        <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 5 }}>Generate with Veo</div>
+        <textarea
+          style={{ ...inputStyle, minHeight: 56, resize: 'vertical', marginBottom: 5 }}
+          value={bgPrompt}
+          onChange={e => setBgPrompt(e.target.value)}
+          placeholder="A dreamy underwater cave with glowing bioluminescent plants…"
+          disabled={generatingBg}
+        />
+        <button
+          onClick={generateBackground}
+          disabled={generatingBg || !bgPrompt.trim()}
+          style={{
+            width: '100%', background: generatingBg ? '#374151' : '#0f766e', color: 'white', border: 'none',
+            borderRadius: 4, padding: '5px 0', fontSize: 11, cursor: (generatingBg || !bgPrompt.trim()) ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {generatingBg ? '⏳ Generating…' : 'Generate Background'}
+        </button>
+        {bgGenProgress && (
+          <div style={{ fontSize: 10, color: '#fbbf24', marginTop: 4 }}>{bgGenProgress}</div>
+        )}
+      </div>
 
       <label style={labelStyle}>System Prompt</label>
       <textarea
@@ -2587,6 +2707,16 @@ function DreamNodePanel({
           Delete
         </button>
       </div>
+
+      {showBgPicker && (
+        <AssetLibraryPicker
+          projectId={projectId}
+          title="Pick Background"
+          defaultTab="scenes"
+          onSelect={url => { setBgUrl(url); setShowBgPicker(false) }}
+          onClose={() => setShowBgPicker(false)}
+        />
+      )}
     </div>
   )
 }
