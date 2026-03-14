@@ -46,6 +46,7 @@ export interface LiveNodeData {
   bg_url: string
   system_prompt: string
   label: string
+  vision?: boolean   // if true, camera frames are forwarded to Gemini Live
 }
 
 export interface Shot {

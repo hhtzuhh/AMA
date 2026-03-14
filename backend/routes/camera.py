@@ -2,6 +2,8 @@
 Camera relay — streams JPEG frames from a phone to any viewer (theater display).
 
 Phone  →  WS /camera/{project_id}/send  →  backend  →  WS /camera/{project_id}/view  →  Display
+
+Internal subscribers (e.g. live.py) can register asyncio.Queues via subscribe_camera().
 """
 import asyncio
 import logging
@@ -15,6 +17,20 @@ router = APIRouter(prefix="/api/projects", tags=["camera"])
 _senders: dict[str, WebSocket] = {}
 # project_id → set of viewer WebSockets
 _viewers: dict[str, set[WebSocket]] = {}
+# project_id → set of internal asyncio.Queues (for live sessions)
+_internal_queues: dict[str, set[asyncio.Queue]] = {}
+
+
+def subscribe_camera(project_id: str) -> "asyncio.Queue[bytes]":
+    """Register an internal queue to receive JPEG frames for this project."""
+    q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=3)
+    _internal_queues.setdefault(project_id, set()).add(q)
+    return q
+
+
+def unsubscribe_camera(project_id: str, q: "asyncio.Queue[bytes]") -> None:
+    """Remove a previously registered internal queue."""
+    _internal_queues.get(project_id, set()).discard(q)
 
 
 @router.websocket("/{project_id}/camera/send")
@@ -27,7 +43,7 @@ async def camera_send(ws: WebSocket, project_id: str):
     try:
         while True:
             frame = await ws.receive_bytes()
-            # Broadcast to all viewers, drop dead connections
+            # Broadcast to WebSocket viewers, drop dead connections
             dead: set[WebSocket] = set()
             for viewer in list(viewers):
                 try:
@@ -35,6 +51,13 @@ async def camera_send(ws: WebSocket, project_id: str):
                 except Exception:
                     dead.add(viewer)
             viewers -= dead
+
+            # Dispatch to internal subscribers (live sessions), drop old frames if full
+            for q in list(_internal_queues.get(project_id, set())):
+                try:
+                    q.put_nowait(frame)
+                except asyncio.QueueFull:
+                    pass  # drop frame rather than block
     except WebSocketDisconnect:
         pass
     finally:

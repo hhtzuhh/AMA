@@ -321,6 +321,7 @@ class LiveNodeBody(BaseModel):
     bg_url: str = ""
     system_prompt: str = ""
     label: str = "Live Interaction"
+    vision: bool = False
 
 
 @router.get("/{project_id}/live-nodes")

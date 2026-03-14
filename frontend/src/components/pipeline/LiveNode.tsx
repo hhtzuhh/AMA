@@ -7,6 +7,7 @@ interface Props {
       label: string
       character: string
       system_prompt: string
+      vision?: boolean
     }
     onClick: () => void
   }
@@ -32,7 +33,7 @@ export default function LiveNode({ data, selected }: Props) {
       <Handle type="target" position={Position.Left} style={{ background: '#7c3aed' }} />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-        <span style={{ fontSize: 14 }}>🎤</span>
+        <span style={{ fontSize: 14 }}>{node.vision ? '🎤👁' : '🎤'}</span>
         <span style={{ fontSize: 11, fontWeight: 'bold', color: '#c084fc' }}>
           {node.label || 'Live Interaction'}
         </span>

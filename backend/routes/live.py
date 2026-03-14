@@ -11,6 +11,7 @@ from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.genai import types
 
 import storage
+from routes.camera import subscribe_camera, unsubscribe_camera
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/projects", tags=["live"])
@@ -43,57 +44,50 @@ async def live_session(websocket: WebSocket, project_id: str, node_id: str):
     personality = char_info.get("personality", "")
     speech_style = char_info.get("speech_style", "")
 
+    vision_enabled = live_node.get("vision", False)
+
     # Navigation options for the system prompt
     nav_lines = "\n".join(
         f'  - navigate_to(node_id="{e["to"]}") — {e.get("label") or "continue story"}'
         for e in outgoing
     ) or "  (no outgoing paths — end of story)"
 
-    system_prompt = f"""**Persona:**
-You are {char_name} — a character in an interactive children's storybook.
-Personality: {personality}
-Speech style: {speech_style}
-Speak directly to the child. Keep every response short (1-2 sentences), warm, and age-appropriate.
+    vision_section = (
+        "\n\nYou can also SEE the child via a live camera (JPEG frames). "
+        "Use what you observe to enrich conversation, but vision alone is never enough to trigger navigation."
+    ) if vision_enabled else ""
 
-**Conversational Rules:**
-1. Immediately greet the child warmly and begin the interaction described below.
-2. {live_node.get('system_prompt', 'Engage the child in a fun interactive moment.')}
-3. Listen and watch carefully for the child's response. Give them 5-10 seconds to respond before gently prompting again. If the child asks a question or says something unrelated, answer briefly and re-invite the specific action you are waiting for. Do NOT navigate yet.
-4. ONLY after you have unmistakably observed the child completing the specific action — say a warm, complete closing sentence to the child first, THEN call navigate_to exactly once. Never call navigate_to mid-sentence or before you have finished speaking.
+    system_prompt = f"""You are {char_name} — a character in an interactive children's story.
+{f"Personality: {personality}" if personality else ""}
+{f"Speech style: {speech_style}" if speech_style else ""}
+Keep responses short (1-2 sentences), warm, and age-appropriate. You ARE {char_name}, not an AI.{vision_section}
 
-**Tool invocation — navigate_to:**
-Each path has a specific condition. You may ONLY call navigate_to when the child's response is an unmistakable, direct match to one of the conditions below.
-If the child's response does NOT clearly match any condition — keep the conversation going, re-invite the action, and wait for a clearer response. Never guess or pick the closest match.
-Available paths:
-{nav_lines}
-Do NOT call navigate_to for questions, greetings, or anything unrelated to the conditions above.
-Do NOT mention the function call to the child.
+Your task: {live_node.get('system_prompt', 'Engage the child in a fun interactive moment.')}
 
-**Guardrails:**
-- Never scare or pressure the child. Stay playful and encouraging at all times.
-- If the child seems confused or shy, offer gentle encouragement before deciding which path to take.
-- Keep the magic of the story alive — you ARE {char_name}, not an AI."""
+If the child asks an off-topic question, answer briefly then gently re-invite the specific action.
+After the child clearly completes the action, say one warm closing sentence — then call navigate_to.
+
+Available routes:
+{nav_lines}"""
 
     # Queue to signal navigation from tool → downstream task
     nav_queue: asyncio.Queue[str] = asyncio.Queue()
-    # Turn-based gate: only allow navigation after AI finishes a turn AND child speaks after it
-    ai_turn_complete = False      # AI has finished speaking at least once
-    child_spoke_after_ai = False  # Child sent audio AFTER the AI's last turn
+    # Gate: child must speak AFTER the most recent AI turn before navigate_to is allowed.
+    # Resets every time the AI starts speaking, so each AI reply requires a fresh child response.
+    child_spoke_after_ai = False
 
     def navigate_to(node_id: str) -> dict:
-        """Advance the story to the next node.
+        """Advance the story to the next scene.
 
-        **Invocation condition:** Call this tool ONLY when the child's response
-        unmistakably and specifically matches the condition described in one of the
-        available path labels. Do NOT call this if the child said something unrelated,
-        asked a question, or gave an ambiguous response. If the response does not
-        clearly fit any path label, keep the conversation going — do not guess.
+        Call this ONLY when the child has directly and clearly performed the specific
+        action described in the matching route label — not for questions, greetings,
+        or anything ambiguous. If unsure, keep talking and wait for a clearer response.
 
         Args:
-            node_id: The node_id whose path label best matches what the child just did.
+            node_id: ID of the route whose condition the child just met.
         """
         if not child_spoke_after_ai:
-            log.info("[live] navigate_to blocked (child has not responded after AI turn): %s", node_id)
+            log.info("[live] navigate_to blocked — child hasn't responded yet: %s", node_id)
             return {"status": "waiting", "reason": "still waiting for child response"}
         log.info("[live] navigate_to called: %s", node_id)
         try:
@@ -145,9 +139,9 @@ Do NOT mention the function call to the child.
             while True:
                 message = await websocket.receive()
                 if "bytes" in message:
-                    if ai_turn_complete and not child_spoke_after_ai:
+                    if not child_spoke_after_ai:
                         child_spoke_after_ai = True
-                        log.info("[live] child spoke after AI turn — navigation unlocked")
+                        log.info("[live] child spoke — navigation unlocked for this turn")
                     blob = types.Blob(mime_type="audio/pcm;rate=16000", data=message["bytes"])
                     live_request_queue.send_realtime(blob)
                 elif "text" in message:
@@ -161,7 +155,7 @@ Do NOT mention the function call to the child.
             live_request_queue.close()
 
     async def downstream_task():
-        nonlocal ai_turn_complete, child_spoke_after_ai
+        nonlocal child_spoke_after_ai
         try:
             async for event in runner.run_live(
                 user_id=user_id,
@@ -189,9 +183,10 @@ Do NOT mention the function call to the child.
                 for part in event.content.parts:
                     inline = getattr(part, "inline_data", None)
                     if inline and inline.data:
-                        if not ai_turn_complete:
-                            ai_turn_complete = True
-                            log.info("[live] AI started speaking — child response will unlock navigation")
+                        # AI started a new audio turn — reset gate so child must speak again
+                        if child_spoke_after_ai:
+                            child_spoke_after_ai = False
+                            log.info("[live] AI speaking — gate reset, waiting for child")
                         await websocket.send_bytes(inline.data)
                     txt = getattr(part, "text", None)
                     if txt:
@@ -206,8 +201,32 @@ Do NOT mention the function call to the child.
                 except Exception:
                     pass
 
+    async def camera_vision_task():
+        """Forward camera frames to Gemini Live as image/jpeg when vision is enabled."""
+        if not vision_enabled:
+            return
+        cam_q = subscribe_camera(project_id)
+        log.info("[live] vision enabled — subscribed to camera for project %s", project_id)
+        try:
+            while not shutdown.is_set():
+                try:
+                    frame = await asyncio.wait_for(cam_q.get(), timeout=1.0)
+                    blob = types.Blob(mime_type="image/jpeg", data=frame)
+                    live_request_queue.send_realtime(blob)
+                except asyncio.TimeoutError:
+                    pass  # no frame yet, keep waiting
+        finally:
+            unsubscribe_camera(project_id, cam_q)
+            log.info("[live] vision task ended for project %s", project_id)
+
     try:
-        await asyncio.gather(send_initial_prompt(), upstream_task(), downstream_task(), return_exceptions=True)
+        await asyncio.gather(
+            send_initial_prompt(),
+            upstream_task(),
+            downstream_task(),
+            camera_vision_task(),
+            return_exceptions=True,
+        )
     finally:
         try:
             await websocket.close()

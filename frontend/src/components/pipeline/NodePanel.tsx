@@ -1986,12 +1986,13 @@ function LiveNodePanel({
   const [character, setCharacter] = useState(node.character)
   const [bgUrl, setBgUrl] = useState(node.bg_url)
   const [systemPrompt, setSystemPrompt] = useState(node.system_prompt)
+  const [vision, setVision] = useState(node.vision ?? false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
   async function save() {
     setSaving(true)
-    const updated: LiveNodeData = { id: node.id, label, character, bg_url: bgUrl, system_prompt: systemPrompt }
+    const updated: LiveNodeData = { id: node.id, label, character, bg_url: bgUrl, system_prompt: systemPrompt, vision }
     await fetch(`${API}/api/projects/${projectId}/live-nodes/${node.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -2063,6 +2064,18 @@ function LiveNodePanel({
         onChange={e => setSystemPrompt(e.target.value)}
         placeholder="You are a character in a children's story..."
       />
+
+      <label style={{ ...labelStyle, marginTop: 14, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', textTransform: 'none', letterSpacing: 0 }}>
+        <input
+          type="checkbox"
+          checked={vision}
+          onChange={e => setVision(e.target.checked)}
+          style={{ accentColor: '#7c3aed', width: 14, height: 14 }}
+        />
+        <span style={{ fontSize: 11, color: vision ? '#c084fc' : '#9ca3af' }}>
+          Vision enabled {vision ? '👁 (camera frames → Gemini)' : '(phone camera off)'}
+        </span>
+      </label>
 
       <div style={{ display: 'flex', gap: 6, marginTop: 14 }}>
         <button

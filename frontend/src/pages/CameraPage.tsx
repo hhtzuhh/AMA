@@ -8,8 +8,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { WS_URL } from '../config'
 
-const FPS = 2           // frames per second sent to backend
-const QUALITY = 0.6     // JPEG quality
+const FPS = 5           // frames per second sent to backend
+const QUALITY = 0.7     // JPEG quality
 const WIDTH = 640
 const HEIGHT = 480
 
