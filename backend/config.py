@@ -4,9 +4,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Storage root — all projects live here
-OUTPUT_DIR = Path(__file__).parent / "output"
-OUTPUT_DIR.mkdir(exist_ok=True)
+# Storage root — all projects live here (env-configurable for GCS FUSE mount)
+OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", str(Path(__file__).parent / "output")))
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Mock mode — no real API calls, copies test fixtures instead
 MOCK_MODE = os.getenv("MOCK_MODE", "true").lower() == "true"

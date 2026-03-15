@@ -1,5 +1,7 @@
 import logging
+from pathlib import Path
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,6 +27,7 @@ logging.getLogger("uvicorn.access").addFilter(_PollFilter())
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("google_adk").setLevel(logging.CRITICAL)
 logging.getLogger("py.warnings").setLevel(logging.ERROR)
+logging.getLogger("routes.dream").setLevel(logging.DEBUG)
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
@@ -54,3 +57,9 @@ app.include_router(studio.router)
 @app.get("/api/health")
 def health():
     return {"status": "ok", "mock_mode": MOCK_MODE}
+
+
+# Serve React frontend — must be mounted last (catches all non-API routes)
+_frontend = Path(__file__).parent / "frontend_dist"
+if _frontend.exists():
+    app.mount("/", StaticFiles(directory=str(_frontend), html=True), name="frontend")
