@@ -423,7 +423,9 @@ class DreamNodeBody(BaseModel):
     character: str = ""
     character_sprite: str = ""
     bg_url: str = ""
-    system_prompt: str = ""
+    voice_prompt: str = ""
+    image_prompt: str = ""
+    num_shots: int = 1
     vision: bool = False
     character_refs: list[str] = []
     background_refs: list[str] = []

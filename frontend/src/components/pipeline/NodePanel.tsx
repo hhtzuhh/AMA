@@ -2453,7 +2453,9 @@ function DreamNodePanel({
   const [character, setCharacter] = useState(node.character)
   const [characterSprite, setCharacterSprite] = useState(node.character_sprite ?? '')
   const [bgUrl, setBgUrl] = useState(node.bg_url)
-  const [systemPrompt, setSystemPrompt] = useState(node.system_prompt)
+  const [voicePrompt, setVoicePrompt] = useState(node.voice_prompt ?? '')
+  const [imagePrompt, setImagePrompt] = useState(node.image_prompt ?? '')
+  const [numShots, setNumShots] = useState(node.num_shots ?? 1)
   const [vision, setVision] = useState(node.vision ?? false)
   const [charRefs, setCharRefs] = useState<string[]>(node.character_refs ?? [])
   const [bgRefs, setBgRefs] = useState<string[]>(node.background_refs ?? [])
@@ -2519,7 +2521,7 @@ function DreamNodePanel({
     setSaving(true)
     const updated: DreamNodeData = {
       id: node.id, label, character, character_sprite: characterSprite, bg_url: bgUrl,
-      system_prompt: systemPrompt, vision,
+      voice_prompt: voicePrompt, image_prompt: imagePrompt, num_shots: numShots, vision,
       character_refs: charRefs, background_refs: bgRefs,
     }
     await fetch(`${API}/api/projects/${projectId}/dream-nodes/${node.id}`, {
@@ -2645,13 +2647,22 @@ function DreamNodePanel({
         )}
       </div>
 
-      <label style={labelStyle}>System Prompt</label>
+      <label style={labelStyle}>Voice Prompt</label>
       <textarea
-        style={{ ...inputStyle, minHeight: 100, resize: 'vertical' }}
-        value={systemPrompt}
-        onChange={e => setSystemPrompt(e.target.value)}
-        placeholder="Invite the child to imagine something magical. When they describe it, call generate_dream..."
+        style={{ ...inputStyle, minHeight: 72, resize: 'vertical' }}
+        value={voicePrompt}
+        onChange={e => setVoicePrompt(e.target.value)}
+        placeholder="What the character says to guide the child. E.g. Ask the child to pick a magical weapon to defeat the dragon. When they choose one, call generate_dream with their answer."
       />
+
+      <label style={labelStyle}>Image Prompt</label>
+      <textarea
+        style={{ ...inputStyle, minHeight: 72, resize: 'vertical' }}
+        value={imagePrompt}
+        onChange={e => setImagePrompt(e.target.value)}
+        placeholder="Scene context + art style for all generated shots. E.g. A brave hero faces the Shadow Dragon in an enchanted forest. Art style: painterly watercolor, warm golden light."
+      />
+
 
       <label style={{ ...labelStyle, marginTop: 14, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', textTransform: 'none', letterSpacing: 0 }}>
         <input type="checkbox" checked={vision} onChange={e => setVision(e.target.checked)} style={{ accentColor: '#0d9488', width: 14, height: 14 }} />

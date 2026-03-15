@@ -92,7 +92,7 @@ export default function LiveSession({ projectId, node, onNavigate }: Props) {
     const ctx = new AudioContext({ sampleRate: 16000 })
     audioCtxRef.current = ctx
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } })
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
     micStreamRef.current = stream
 
     // Inline AudioWorklet processor — buffers to ~40ms chunks before sending

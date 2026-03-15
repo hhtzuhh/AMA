@@ -122,9 +122,13 @@ export default function TheaterPage() {
       const slug = charName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
       const spriteState = dreamNode.character_sprite || 'idle'
       const charManifest = (manifest as any)?.characters?.[slug]
-      const stateEntry = charManifest?.sprites?.[spriteState] ?? charManifest?.sprites?.['idle']
-      const versionUrl = stateEntry?.versions?.length > 0
-        ? stateEntry.versions[stateEntry.current ?? stateEntry.versions.length - 1]?.url : null
+      // Try selected state → idle → any available state
+      const allStates = Object.keys(charManifest?.sprites ?? {})
+      const stateEntry = charManifest?.sprites?.[spriteState]
+        ?? charManifest?.sprites?.['idle']
+        ?? (allStates.length > 0 ? charManifest?.sprites?.[allStates[0]] : null)
+      const versions = stateEntry?.versions ?? []
+      const versionUrl = versions.length > 0 ? versions[versions.length - 1]?.url : null
       if (versionUrl) sprites = [{ url: assetUrl(projectId!, versionUrl as string), state: spriteState }]
     }
   } else if (isLiveNode && liveNode) {

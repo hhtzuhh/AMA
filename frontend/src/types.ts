@@ -73,7 +73,9 @@ export interface DreamNodeData {
   character: string
   character_sprite?: string
   bg_url: string
-  system_prompt: string
+  voice_prompt: string
+  image_prompt: string
+  num_shots: number
   vision?: boolean
   character_refs: string[]
   background_refs: string[]
