@@ -25,6 +25,12 @@ backend/output/
 # Frontend public assets (test fixtures — large binaries)
 frontend/public/assets/
 
+# Terraform
+infra/.terraform/
+infra/.terraform.lock.hcl
+infra/*.tfstate
+infra/*.tfstate.backup
+
 # OS
 .DS_Store
 Thumbs.db
