@@ -37,12 +37,37 @@ A web-based visual node editor where creators build interactive stories — no c
 
 **The story graph has four node types, each a distinct creative tool:**
 
-| Node Type | Preview | What it does |
-|-----------|---------|-------------|
-| **Page Node** | <img src="images/page_node.png" width="600"> | Separates characters from the background as transparent sprites, letting you programmatically control their position, scale, and movement on the stage |
-| **Image Node** | <img src="images/image_node.png" width="600"> | Uses Gemini image generation to compose characters directly into the background scene — characters feel embedded in the world, and art style is preserved |
-| **Live Node** | <img src="images/live_node.png" width="600"> | Activates the Gemini Live API so the audience can speak to characters in real time; Gemini decides which story branch to navigate to based on what the audience says |
-| **Dream Node** | <img src="images/dream_node.png" width="600"> | Uses the Gemini Live API to capture the audience's real-time input, then leverages Gemini's interleaved generation to produce story text and images simultaneously — the story writes and illustrates itself as the child speaks |
+<table>
+  <thead>
+    <tr>
+      <th>Node Type</th>
+      <th>Preview</th>
+      <th>What it does</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong style="color:#ef4444">Dream Node</strong></td>
+      <td><img src="images/dream_node.png" width="800"></td>
+      <td><small>Captures real-time audience input via Gemini Live, then uses <strong style="color:#ef4444">✨ Gemini Interleaved Generation</strong> to produce story text and images <em>simultaneously</em> — the story writes and illustrates itself as the child speaks</small></td>
+    </tr>
+    <tr>
+      <td><strong>Live Node</strong></td>
+      <td><img src="images/live_node.png" width="800"></td>
+      <td><small>Activates Gemini Live API for real-time voice interaction; Gemini navigates story branches based on audience responses</small></td>
+    </tr>
+    <tr>
+      <td><strong>Image Node</strong></td>
+      <td><img src="images/image_node.png" width="800"></td>
+      <td><small>Composes characters directly into the background using Gemini image generation — preserving art style consistency</small></td>
+    </tr>
+    <tr>
+      <td><strong>Page Node</strong></td>
+      <td><img src="images/page_node.png" width="800"></td>
+      <td><small>Separates characters from the background as transparent sprites for programmatic position, scale, and movement control</small></td>
+    </tr>
+  </tbody>
+</table>
 
 
 ### 2. Theater Mode (Runtime Experience)
