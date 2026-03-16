@@ -36,6 +36,7 @@ type AnySelected =
   | { type: 'page'; data: { page: StoryData['pages'][0] } }
   | { type: 'live'; data: { node: LiveNodeData } }
   | { type: 'image_story'; data: { node: ImageStoryNodeData } }
+  | { type: 'dream'; data: { node: DreamNodeData } }
   | { type: 'edge'; data: { edgeId: string; label: string } }
 
 // "char/state" → list of page node IDs that use this sprite
@@ -99,6 +100,15 @@ export default function PipelinePage() {
     }
     if (imgNodes.length > 0 && deletedNodes.length === imgNodes.length) return true
 
+    // Handle dream node deletions
+    const dreamNodes = deletedNodes.filter(n => n.id.startsWith('dream_'))
+    for (const n of dreamNodes) {
+      await fetch(`${API}/api/projects/${projectId}/dream-nodes/${n.id}`, { method: 'DELETE' })
+      setEdges((prev: Edge[]) => prev.filter((e: Edge) => e.source !== n.id && e.target !== n.id))
+      if (selected?.type === 'dream' && selected.data.node.id === n.id) setSelected(null)
+    }
+    if (dreamNodes.length > 0 && deletedNodes.length === dreamNodes.length) return true
+
     const pageNodes = deletedNodes.filter(n => n.id.startsWith('page_'))
     if (pageNodes.length === 0) return true  // nothing to guard
 
@@ -146,7 +156,7 @@ export default function PipelinePage() {
   const onConnect = useCallback(
     (params: Connection) => {
       setEdges((eds: Edge[]) => {
-        const newEdges = addEdge({ ...params, style: { stroke: '#6366f1', strokeWidth: 2.5 }, interactionWidth: 20, interactionWidth: 20 }, eds)
+        const newEdges = addEdge({ ...params, style: { stroke: '#6366f1', strokeWidth: 2.5 }, interactionWidth: 20 }, eds)
         savePageEdges(newEdges)
         return newEdges
       })

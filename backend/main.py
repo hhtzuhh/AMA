@@ -62,4 +62,12 @@ def health():
 # Serve React frontend — must be mounted last (catches all non-API routes)
 _frontend = Path(__file__).parent / "frontend_dist"
 if _frontend.exists():
-    app.mount("/", StaticFiles(directory=str(_frontend), html=True), name="frontend")
+    # StaticFiles handles exact asset paths (JS, CSS, images)
+    app.mount("/assets", StaticFiles(directory=str(_frontend / "assets")), name="assets")
+
+    # SPA fallback: serve index.html for all non-API routes so browser refresh works
+    from fastapi.responses import FileResponse
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa_fallback(full_path: str):
+        return FileResponse(str(_frontend / "index.html"))
