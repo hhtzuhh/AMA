@@ -94,40 +94,7 @@ The audience-facing stage where the story comes alive:
 
 ### Architecture
 
-> *An architecture diagram image will be inserted here. The diagram below represents the data flow and system layers.*
-
-```
-┌───────────────────────────────────────────────────────────────┐
-│                  FRONTEND  (React 19 + TypeScript)            │
-│                                                               │
-│  ┌─────────────────────────┐   ┌─────────────────────────┐   │
-│  │   Pipeline Editor        │   │      Theater Mode        │   │
-│  │  (XYFlow Node Graph)     │   │  (Pixi.js + WebSocket)  │   │
-│  │  Asset generation UI     │   │  Live agent playback    │   │
-│  └──────────┬──────────────┘   └──────────┬──────────────┘   │
-└─────────────┼──────────────────────────────┼─────────────────┘
-              │  REST API                    │  WebSocket
-              ▼                              ▼
-┌───────────────────────────────────────────────────────────────┐
-│                  BACKEND  (FastAPI + Python 3.12)             │
-│                                                               │
-│  Pipeline Stages (Authoring):                                │
-│   1. Story Understanding  →  Gemini 3 Flash (text)           │
-│   2. Sprite Generation    →  Gemini 3 Pro Image              │
-│   3. Background Video     →  Veo 3.1  (2 RPM · 10 RPD)      │
-│   4. TTS Narration        →  Gemini 2.5 Flash TTS            │
-│                                                               │
-│  Real-Time (Theater):                                        │
-│   · Gemini Live API  →  native audio + vision + tool-calling │
-│   · Tool: navigate_to(node_id)  →  story graph traversal     │
-│   · Camera stream   →  1 FPS JPEG  →  vision-based branches  │
-│   · Dream tool      →  generate_dream()  →  live storyboard  │
-└─────────────────────────────┬─────────────────────────────────┘
-                              │
-                              ▼
-               Google Cloud / Vertex AI APIs
-       (Gemini · Veo · TTS · Secret Manager · Cloud Run · GCS)
-```
+<img src="images/sys.png">
 
 ### Tech Stack
 
@@ -229,24 +196,6 @@ Our initial storage model used global version counters per character. As story b
 
 ---
 
-## Architecture Overview
-
-> Replace the placeholder below with your architecture diagram image.
-
-```
-[ Insert architecture.png here ]
-```
-
-The architecture has three major zones:
-
-1. **Authoring Zone** — Creator uses the Pipeline Editor to upload content, trigger asset generation, and build the story graph. All generated assets are stored in GCS.
-
-2. **Runtime Zone** — The Theater Mode client loads pre-generated assets and opens a WebSocket to the backend. The Gemini Live agent receives audio/video from the child and uses tool-calling to navigate the story graph.
-
-3. **Infrastructure Zone** — Cloud Run (Gen 2) hosts the FastAPI backend with GCS FUSE for storage. Terraform manages all cloud resources. Secret Manager holds the API key.
-
----
-
 ## How to Run
 
 ### Prerequisites
@@ -330,7 +279,7 @@ brew install terraform gcloud
 # Authenticate with Google Cloud
 gcloud auth login
 gcloud auth application-default login
-gcloud config set project geminiliveagent-489401
+gcloud config set project <name>
 ```
 
 ### One-Command Deploy
@@ -440,6 +389,13 @@ AMA/
 ```
 
 ---
+
+### GCP proof
+<img src="images/gcp_p1.png" width="800">
+<img src="images/gcp_p2.png" width="800">
+
+
+
 
 ## Built With
 
