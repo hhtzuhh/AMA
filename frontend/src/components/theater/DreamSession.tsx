@@ -21,6 +21,7 @@ export default function DreamSession({ projectId, node, onNavigate }: Props) {
   const [panels, setPanels] = useState<DreamPanel[]>([])
   const [currentSlide, setCurrentSlide] = useState(0)
   const [generating, setGenerating] = useState(false)
+  const [readyToAdvance, setReadyToAdvance] = useState(false)
 
   const wsRef = useRef<WebSocket | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
@@ -35,7 +36,8 @@ export default function DreamSession({ projectId, node, onNavigate }: Props) {
   const slideTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
-    return () => { cleanup() }
+    const t = setTimeout(() => startSession(), 1000)
+    return () => { clearTimeout(t); cleanup() }
   }, [])
 
   function cleanup() {
@@ -51,12 +53,14 @@ export default function DreamSession({ projectId, node, onNavigate }: Props) {
     dreamImageUrlsRef.current = []
     if (slideTimerRef.current) { clearInterval(slideTimerRef.current); slideTimerRef.current = null }
     dreamDoneRef.current = false
+    setReadyToAdvance(false)
   }
 
   async function startSession() {
     setStatus('connecting')
     setTranscript('')
     setPanels([])
+    setReadyToAdvance(false)
     dreamDoneRef.current = false
     dreamImageUrlsRef.current.forEach(u => URL.revokeObjectURL(u))
     dreamImageUrlsRef.current = []
@@ -111,18 +115,7 @@ export default function DreamSession({ projectId, node, onNavigate }: Props) {
           } else if (msg.type === 'dream_done') {
             setGenerating(false)
             dreamDoneRef.current = true
-            // Navigation fires from playNextChunk when narrator audio finishes
-            // Fallback: navigate after 12s in case Gemini doesn't produce audio
-            slideTimerRef.current = setTimeout(() => {
-              slideTimerRef.current = null
-              if (!dreamDoneRef.current) return
-              const nodeId = pendingNavRef.current
-              pendingNavRef.current = null
-              dreamDoneRef.current = false
-              setPanels([])
-              setCurrentSlide(0)
-              if (nodeId) onNavigate(nodeId)
-            }, 12000) as unknown as ReturnType<typeof setInterval>
+            setReadyToAdvance(true)
           } else if (msg.type === 'dream_error') {
             setGenerating(false)
             dreamDoneRef.current = false
@@ -208,17 +201,6 @@ export default function DreamSession({ projectId, node, onNavigate }: Props) {
     source.onended = () => {
       isPlayingRef.current = false
       currentSourceRef.current = null
-      // If narrator finished and no more audio — navigate
-      if (audioQueueRef.current.length === 0 && dreamDoneRef.current && pendingNavRef.current) {
-        if (slideTimerRef.current) { clearTimeout(slideTimerRef.current as unknown as ReturnType<typeof setTimeout>); slideTimerRef.current = null }
-        const nodeId = pendingNavRef.current
-        pendingNavRef.current = null
-        dreamDoneRef.current = false
-        setPanels([])
-        setCurrentSlide(0)
-        onNavigate(nodeId)
-        return
-      }
       playNextChunk()
     }
     source.start()
@@ -284,15 +266,26 @@ export default function DreamSession({ projectId, node, onNavigate }: Props) {
                   {panel.text}
                 </div>
 
-                {!generating && (
+                {readyToAdvance && (
                   <button
-                    onClick={() => { setPanels([]); setCurrentSlide(0) }}
-                    style={{
-                      background: 'transparent', color: '#6b7280',
-                      border: '1px solid #374151', borderRadius: 6,
-                      padding: '3px 12px', fontSize: 11, cursor: 'pointer', marginTop: 4,
+                    onClick={() => {
+                      setReadyToAdvance(false)
+                      dreamDoneRef.current = false
+                      const nodeId = pendingNavRef.current
+                      pendingNavRef.current = null
+                      setPanels([])
+                      setCurrentSlide(0)
+                      if (nodeId) onNavigate(nodeId)
                     }}
-                  >Close</button>
+                    style={{
+                      background: '#0d9488', color: 'white', border: 'none',
+                      borderRadius: 8, padding: '10px 28px', fontSize: 15,
+                      fontWeight: 'bold', cursor: 'pointer', marginTop: 8,
+                      boxShadow: '0 0 16px #0d948888',
+                    }}
+                  >
+                    Continue →
+                  </button>
                 )}
               </div>
             )
