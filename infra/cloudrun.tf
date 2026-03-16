@@ -15,7 +15,7 @@ resource "google_cloud_run_v2_service" "backend" {
     max_instance_request_concurrency = 4
 
     scaling {
-      min_instance_count = 1 # keep warm for demo; avoid cold starts + session loss
+      min_instance_count = 0
       max_instance_count = 3
     }
 

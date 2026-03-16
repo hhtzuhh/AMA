@@ -15,9 +15,8 @@ The spark came from the **Gemini Live API** and its interleaved generation capab
 
 But building that kind of experience is hard. Generating AI content requires orchestrating dozens of API calls — image generation, video, speech, live streaming — and there's no good tool to tie it all together. So we built one: a **studio** where creators can upload any book, generate all the multimedia assets they need, and wire everything into an interactive story graph — without writing a single line of code.
 
-
-
-
+### System UI
+<img src="images/overall_ui.png" width="800">
 
 ---
 
@@ -80,6 +79,14 @@ The audience-facing stage where the story comes alive:
 - **Gemini Live agent** listens to and watches the audience, speaking as the story character in real time
 - **Branching navigation** — Gemini decides which story branch to take based on what the audience says or does
 - **Dream sequences** — the audience describes something imaginary; Gemini generates a live storyboard and narrates it as images stream in
+
+### Theater mode
+1. image with tts
+<img src="images/theater.png" width="800">
+
+2. live node: theater mode with live api listen to audience 
+<img src="images/theater_live_node.png" width="800">
+
 
 ---
 

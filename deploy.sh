@@ -56,23 +56,22 @@ gcloud builds submit . \
 echo "=== [4/5] Terraform: full apply (Cloud Run + IAM + GCS) ==="
 cd infra
 terraform apply -auto-approve
-CLOUD_RUN_URL=$(terraform output -raw cloud_run_url)
 cd ..
 
-# On first deploy: rebuild frontend with real URL and push a corrected image
-if [ "${FIRST_DEPLOY}" = "true" ]; then
-  echo "=== [5/5] First deploy: rebuild frontend with real URL ==="
-  cd frontend
-  VITE_API_URL="${CLOUD_RUN_URL}" npx vite build
-  cd ..
-  gcloud builds submit . --tag "$IMAGE" --machine-type=e2-highcpu-8
-  gcloud run services update ama-api \
-    --region="${REGION}" --image="${IMAGE}" --quiet
-else
-  echo "=== [5/5] Update Cloud Run to latest image ==="
-  gcloud run services update ama-api \
-    --region="${REGION}" --image="${IMAGE}" --quiet
-fi
+# Always get the real URL from gcloud — Terraform state can be stale
+CLOUD_RUN_URL=$(gcloud run services describe ama-api \
+  --region="${REGION}" --project="${PROJECT_ID}" \
+  --format="value(status.url)")
+echo "Cloud Run URL: ${CLOUD_RUN_URL}"
+
+# Rebuild frontend with the real URL and push corrected image
+echo "=== [5/5] Rebuild frontend with real URL + redeploy ==="
+cd frontend
+VITE_API_URL="${CLOUD_RUN_URL}" npx vite build
+cd ..
+gcloud builds submit . --tag "$IMAGE" --machine-type=e2-highcpu-8
+gcloud run services update ama-api \
+  --region="${REGION}" --image="${IMAGE}" --quiet
 
 echo ""
 echo "✅ Done!"
