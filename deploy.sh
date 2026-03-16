@@ -40,8 +40,7 @@ fi
 echo "=== [2/5] Build frontend ==="
 cd frontend
 if [ "${FIRST_DEPLOY}" = "true" ]; then
-  # URL unknown yet; will be correct after second build below
-  VITE_API_URL="" npx vite build
+  VITE_API_URL="" npx vite build   # URL unknown yet — will be corrected in step 5
 else
   VITE_API_URL="${CLOUD_RUN_URL}" npx vite build
 fi
@@ -58,20 +57,28 @@ cd infra
 terraform apply -auto-approve
 cd ..
 
-# Always get the real URL from gcloud — Terraform state can be stale
-CLOUD_RUN_URL=$(gcloud run services describe ama-api \
+# Get the real URL from gcloud — Terraform state can be stale
+REAL_URL=$(gcloud run services describe ama-api \
   --region="${REGION}" --project="${PROJECT_ID}" \
   --format="value(status.url)")
-echo "Cloud Run URL: ${CLOUD_RUN_URL}"
+echo "Cloud Run URL: ${REAL_URL}"
 
-# Rebuild frontend with the real URL and push corrected image
-echo "=== [5/5] Rebuild frontend with real URL + redeploy ==="
-cd frontend
-VITE_API_URL="${CLOUD_RUN_URL}" npx vite build
-cd ..
-gcloud builds submit . --tag "$IMAGE" --machine-type=e2-highcpu-8
-gcloud run services update ama-api \
-  --region="${REGION}" --image="${IMAGE}" --quiet
+# Only do a second build if the URL changed (first deploy or URL mismatch)
+if [ "${FIRST_DEPLOY}" = "true" ] || [ "${REAL_URL}" != "${CLOUD_RUN_URL:-}" ]; then
+  echo "=== [5/5] URL changed — rebuild frontend with correct URL ==="
+  cd frontend
+  VITE_API_URL="${REAL_URL}" npx vite build
+  cd ..
+  gcloud builds submit . --tag "$IMAGE" --machine-type=e2-highcpu-8
+  gcloud run services update ama-api \
+    --region="${REGION}" --image="${IMAGE}" --quiet
+else
+  echo "=== [5/5] URL unchanged — updating Cloud Run image ==="
+  gcloud run services update ama-api \
+    --region="${REGION}" --image="${IMAGE}" --quiet
+fi
+
+CLOUD_RUN_URL="${REAL_URL}"
 
 echo ""
 echo "✅ Done!"
