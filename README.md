@@ -198,6 +198,21 @@ Our initial storage model used global version counters per character. As story b
 
 ---
 
+## Test Instructions
+
+You can try AMA live without any local setup:
+
+1. **Navigate to the app:** https://ama-api-525glmjwra-uc.a.run.app/
+2. **Create a new project** or open the demo project directly:
+   https://ama-api-525glmjwra-uc.a.run.app/pipeline/20260314_201134_untitled
+3. **Enter Theater Mode** using the button in the top-left corner of the Pipeline Editor.
+4. **Testing the Dream Node:** The Dream Node uses real-time camera input. Before entering Theater Mode, open the camera page and select the same project ID (`20260314_201134_untitled`) so your camera stream is sent to the server:
+   https://ama-api-525glmjwra-uc.a.run.app/camera
+
+> The camera page must have the correct project ID selected to route your video feed into the Dream Node during the theater experience.
+
+---
+
 ## How to Run
 
 ### Prerequisites
