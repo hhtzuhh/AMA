@@ -3,6 +3,8 @@
 > **Hackathon Submission · Gemini Live Agent Challenge 2026**
 > AMA is a node-based story platform using Gemini. Creators build branching AI narratives with voice and images—no coding needed. Audiences speak to characters to shape any genre in real time.
 
+[![AMA Demo](https://img.youtube.com/vi/xPXh4sGJW90/maxresdefault.jpg)](https://www.youtube.com/watch?v=xPXh4sGJW90)
+
 ---
 
 ## Inspiration
